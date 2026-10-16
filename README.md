@@ -5,10 +5,10 @@ A spooky 1-vs-3 voxel game for phones: one robber digs up graves and banks the l
 **Play:** https://ilovefree1s.github.io/graveyard-shift/
 
 ## Online with friends
-1. Open the link on your phone and tap **Play online with friends**.
-2. One person taps **Create a room** and reads out the 4-letter code.
-3. Everyone else types the code and taps **Join room**, then picks a seat (the robber or one of the three guards). Empty seats are played by bots.
-4. The person who created the room taps **Start the night**.
+1. Open the link on your phone and tap **Play online**, then **Find a game**.
+2. You join any room with a free seat, or open a new one that the next player joins automatically.
+3. Pick a seat (the robber or one of the three guards). Empty seats are played by bots.
+4. The person who opened the room taps **Start the night**.
 
 The room creator's phone runs the match, so it should stay on the game (not in the background) while you play.
 

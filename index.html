@@ -10,6 +10,8 @@
 <meta name="description" content="1 robber vs 3 guards in a pitch-black graveyard. Play with friends online.">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -1954,7 +1956,7 @@ ACT.buy = id => {
 };
 ACT.reset = (_, b) => { if (b.dataset.armed) { save = freshSave(); persist(); openTitle(); return; } b.dataset.armed = '1'; b.textContent = 'Tap again to erase everything'; };
 ACT.shop = () => enterShop([], 'visit', null);
-ACT.title = () => { shopToken++; if (mode === 'shop') newYard(); if (NET) { if (NET.host) sendNet('gone', {}); netLeave(true); } openTitle(); };
+ACT.title = () => { shopToken++; findGame.token = (findGame.token || 0) + 1; if (mode === 'shop') newYard(); if (NET) { if (NET.host) sendNet('gone', {}); netLeave(true); } stopWatch(); openTitle(); };
 ACT.start = () => { shopToken++; $('say').hidden = true; if (NET) { if (mode === 'shop') newYard(); openLobby(); } else openPerks('robber'); };
 
 // ---------- HUD ----------
@@ -3336,7 +3338,7 @@ function makeTransport(code, id, h) {
     const iv = setInterval(tick, 1000); setTimeout(() => { tick(); h.ready(); }, 50);
     return { send: m => bc.postMessage(m), close: () => { clearInterval(iv); bc.close(); } };
   }
-  const sb = window.supabase.createClient(SUPA.url, SUPA.key, { auth: { persistSession: false, autoRefreshToken: false }, realtime: { params: { eventsPerSecond: 40 } } });
+  const sb = sbClient();
   const ch = sb.channel('gs-' + code, { config: { broadcast: { self: false, ack: false }, presence: { key: id } } });
   ch.on('broadcast', { event: 'm' }, ({ payload }) => { if (payload && payload.f !== id) h.msg(payload); });
   ch.on('presence', { event: 'sync' }, () => h.peers(Object.keys(ch.presenceState())));
@@ -3348,15 +3350,71 @@ function makeTransport(code, id, h) {
   return { send: m => ch.send({ type: 'broadcast', event: 'm', payload: m }), close: () => { try { sb.removeChannel(ch); } catch (e) {} } };
 }
 
+let SB = null;
+const sbClient = () => SB || (SB = window.supabase.createClient(SUPA.url, SUPA.key, { auth: { persistSession: false, autoRefreshToken: false }, realtime: { params: { eventsPerSecond: 40 } } }));
+
+// ---------- matchmaking: open rooms advertise themselves on one shared channel ----------
+// Hosts publish { code, n players, free seats, open }; anyone looking just reads the list.
+let LW = null;   // the lobby watcher
+function lobbyWatch(onRooms) {
+  const myKey = newId();
+  if (useLocalNet()) {
+    const bc = new BroadcastChannel('gs-rooms'), seen = new Map(); let meta = null;
+    const list = () => [...seen.values()].filter(r => Date.now() - r.at < 4000).map(r => r.meta);
+    bc.onmessage = e => { const m = e.data; if (!m || m.k === myKey) return; if (m.meta) seen.set(m.k, { meta: m.meta, at: Date.now() }); else seen.delete(m.k); onRooms(list()); };
+    const iv = setInterval(() => { if (meta) bc.postMessage({ k: myKey, meta }); onRooms(list()); }, 800);
+    return { set: m => { meta = m; bc.postMessage({ k: myKey, meta: m }); }, rooms: list, close: () => { clearInterval(iv); bc.postMessage({ k: myKey, meta: null }); bc.close(); } };
+  }
+  const ch = sbClient().channel('gs-rooms', { config: { presence: { key: myKey } } });
+  let meta = null, ready = false;
+  const list = () => Object.values(ch.presenceState()).flat().map(p => p.meta).filter(Boolean);
+  ch.on('presence', { event: 'sync' }, () => onRooms(list()));
+  ch.subscribe(st => { if (st === 'SUBSCRIBED') { ready = true; if (meta) ch.track({ meta }); onRooms(list()); } });
+  return { set: m => { meta = m; if (ready) { if (m) ch.track({ meta: m }); else ch.untrack(); } }, rooms: list, close: () => { try { sbClient().removeChannel(ch); } catch (e) {} } };
+}
+function stopWatch() { if (LW) { LW.close(); LW = null; } }
+// look for an open room; if there is none, open one and let the next player find it
+function findGame() {
+  if (NET) netLeave(true);
+  stopWatch();
+  show('connecting', `<div><div class="eyebrow">Online</div><h2>Finding a game…</h2></div><p>Looking for a room with a free seat.</p><button class="link" data-act="leave">Cancel</button>`);
+  const t0 = Date.now(), wait = 1800 + Math.random() * 1400, token = (findGame.token = (findGame.token || 0) + 1);
+  LW = lobbyWatch(() => {});
+  const pickRoom = () => LW.rooms().filter(r => r.open && r.free > 0).sort((a, b) => b.n - a.n || a.t - b.t)[0];
+  const tick = () => {
+    if (token !== findGame.token || !LW || NET) return;
+    const r = pickRoom();
+    if (r) { netStart(false, r.code); return; }
+    if (Date.now() - t0 > wait) { netStart(true, roomCode()); return; }
+    setTimeout(tick, 300);
+  };
+  setTimeout(tick, 600);
+  // no way to reach the server at all
+  setTimeout(() => { if (token === findGame.token && !NET && LW && modalKind === 'connecting') {} }, 9000);
+}
+// hosts keep their room's listing current; a host still alone moves into an older open room
+function advertise() {
+  if (!NET || !NET.host || !NET.connected || !LW) return;
+  const L = NET.lobby, n = Object.keys(L.players).length, free = SEATS.filter(x => !L.seats[x]).length;
+  const playing = mode === 'play' || mode === 'ending';
+  LW.set({ code: L.code, n, free, open: !playing && free > 0, t: NET.created });
+  if (n === 1 && !playing && mode === 'lobby') {
+    const other = LW.rooms().filter(r => r.open && r.free > 0 && r.code !== L.code && (r.n > 1 || r.t < NET.created)).sort((a, b) => b.n - a.n || a.t - b.t)[0];
+    if (other) { LW.set(null); netLeave(true); netStart(false, other.code); }
+  }
+}
+
 function netStart(asHost, code) {
   if (NET) netLeave(true);
   const id = newId();
-  NET = { id, code, host: asHost, client: !asHost, name: (save.name || 'Player').slice(0, 14), peers: [id], out: [], snapT: 0, posT: 0, match: null, lobby: null, connected: false, hostId: asHost ? id : null, heard: {} };
+  NET = { id, code, host: asHost, client: !asHost, name: (save.name || 'Player').slice(0, 14), peers: [id], out: [], snapT: 0, posT: 0, match: null, lobby: null, connected: false, hostId: asHost ? id : null, heard: {}, created: Date.now() };
+  if (asHost && !LW) LW = lobbyWatch(() => {});
+  if (!asHost) stopWatch();
   NET.act = (a, d) => sendNet('act', { a, ...d }, NET.hostId);
   if (asHost) {
     NET.lobby = { code, hostId: id, seats: { robber: id, g0: null, g1: null, g2: null }, players: { [id]: playerInfo('robber') } };
   }
-  showConnecting(asHost ? 'Opening room ' + code + '…' : 'Joining room ' + code + '…');
+  showConnecting(asHost ? 'Opening a new room…' : 'Joining a game…');
   const failT = setTimeout(() => { if (NET && !NET.connected) netFail('Couldn’t reach the game server. Check your connection, or open the game from its web link (online play does not work inside the preview).'); }, 9000);
   NET.tr = makeTransport(code, id, {
     ready: () => { clearTimeout(failT); if (!NET) return; NET.connected = true; if (NET.host) openLobby(); else sendNet('hello', helloInfo()); },
@@ -3373,14 +3431,18 @@ function playerInfo(seat) {
 function mySeat() { const L = NET && (NET.match || NET.lobby); if (!L) return null; return SEATS.find(s => L.seats[s] === NET.id) || null; }
 function seatOf(pid) { const L = NET.match || NET.lobby; return SEATS.find(s => L.seats[s] === pid) || null; }
 function netLeave(quiet) {
+  if (LW) LW.set(null);
+  if (!quiet) stopWatch();
   if (!NET) return;
   try { sendNet('bye', {}); NET.tr && NET.tr.close(); } catch (e) {}
   NET = null;
   if (!quiet) openTitle();
 }
-function netFail(msg) {
+function netFail(msg, again) {
   if (NET) { try { NET.tr && NET.tr.close(); } catch (e) {} NET = null; }
-  show('netfail', `<div><div class="eyebrow">Online</div><h2>No connection</h2></div><p>${esc(msg)}</p><div class="row"><button class="btn primary" data-act="online">Try again</button><button class="btn" data-act="title">Back</button></div>`);
+  stopWatch();
+  mode = 'title'; $('hud').hidden = true;
+  show('netfail', `<div><div class="eyebrow">Online</div><h2>${again ? 'Room closed' : 'No connection'}</h2></div><p>${esc(msg)}</p><div class="row"><button class="btn primary" data-act="find">${again ? 'Find another game' : 'Try again'}</button><button class="btn" data-act="title">Back</button></div>`);
 }
 
 // ---------- messages ----------
@@ -3417,10 +3479,10 @@ function onNet(m) {
     else if (m.t === 'bye') dropPlayer(m.f);
   } else {
     if (m.t === 'lobby') { const key = JSON.stringify(d), changed = key !== NET.lastLobby; NET.lastLobby = key; NET.lobby = d; NET.hostId = d.hostId; if (mode !== 'play' && mode !== 'ending' && (modalKind === 'connecting' || (modalKind === 'lobby' && changed))) openLobby(); }
-    else if (m.t === 'full') netFail(d.why);
+    else if (m.t === 'full') { netLeave(true); findGame(); }
     else if (m.t === 'start') startOnline(d);
     else if (m.t === 'snap') { if (NET.match && (mode === 'play' || mode === 'ending')) applySnap(d); }
-    else if (m.t === 'gone') { netFail('The host closed the room.'); }
+    else if (m.t === 'gone') { netFail('The host left, so that room closed.', true); }
   }
 }
 function onPeers(list) {
@@ -3434,7 +3496,7 @@ function checkGone() {
   if (!NET || !NET.connected) return;
   const now = Date.now(), quiet = pid => !NET.peers.includes(pid) && now - (NET.heard[pid] || 0) > 9000;
   if (NET.host) { for (const pid of Object.keys(NET.lobby.players)) if (pid !== NET.id && quiet(pid)) dropPlayer(pid); }
-  else if (NET.hostId && now - (NET.heard[NET.hostId] || now) > 9000 && quiet(NET.hostId)) netFail('Lost the host. The room is closed.');
+  else if (NET.hostId && now - (NET.heard[NET.hostId] || now) > 9000 && quiet(NET.hostId)) netFail('Lost the host, so that room closed.', true);
 }
 function dropPlayer(pid) {
   const L = NET.lobby; if (!L.players[pid]) return;
@@ -3466,17 +3528,15 @@ function pushLobby() {
 function openOnline() {
   mode = 'title';
   show('online', `
-    <div><div class="eyebrow">Play with friends</div><h2>Online</h2></div>
+    <div><div class="eyebrow">Play with people</div><h2>Online</h2></div>
     <label class="fld"><span>Your name</span><input id="nmIn" maxlength="14" value="${esc(save.name || '')}" placeholder="Name" autocomplete="off"></label>
-    <div class="row"><button class="btn primary" data-act="host">Create a room</button></div>
-    <div class="sec">Or join a friend</div>
-    <label class="fld"><span>Room code</span><input id="cdIn" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.2em"></label>
-    <div class="row"><button class="btn" data-act="join">Join room</button></div>
-    <p class="note">One robber and up to three guards. Seats nobody takes are played by bots.</p>
+    <div class="row"><button class="btn primary" data-act="find">Find a game</button></div>
+    <p class="note">You’ll join a room that has a free seat, or open a new one for the next player. One robber and up to three guards; bots play any empty seats.</p>
     <button class="link" data-act="title">Back</button>`);
 }
 function readName() { const v = ($('nmIn') && $('nmIn').value || '').trim(); if (v) { save.name = v.slice(0, 14); persist(); } return save.name || 'Player'; }
 ACT.online = () => openOnline();
+ACT.find = () => { readName(); findGame(); };
 ACT.host = () => { readName(); netStart(true, roomCode()); };
 ACT.join = () => {
   readName();
@@ -3491,6 +3551,7 @@ setInterval(() => {
   if (NET && NET.host && mode !== 'play') pushLobby();
   if (NET && NET.client && NET.connected && mode !== 'play') sendNet('hb', {}, NET.hostId);   // still here (between nights)
   checkGone();
+  advertise();
 }, 1500);
 function helloInfo() { const p = playerInfo(null); p.allPerks = { robber: (save.perks && save.perks.robber) || [], guard: (save.perks && save.perks.guard) || [] }; return p; }
 function openLobby() {
@@ -3508,7 +3569,8 @@ function openLobby() {
   }).join('');
   const theme = THEMES.find(t => t.id === L.theme) || THEMES[0];
   show('lobby', `
-    <div><div class="eyebrow">Online room · tell friends this code</div><h2 class="code">${esc(L.code)}</h2></div>
+    <div><div class="eyebrow">Online game</div><h2>${Object.keys(L.players).length} ${Object.keys(L.players).length === 1 ? 'player' : 'players'} here</h2></div>
+    <p class="note">${SEATS.some(x => !L.seats[x]) ? 'New players drop in as they search. Bots play any empty seats.' : 'Every seat is taken.'}</p>
     <div class="seats">${rows}</div>
     ${mine ? `<div class="row"><button class="btn" data-act="lobbyPerks">Pick your perks</button></div>` : ''}
     <div class="job"><span class="eyebrow">Night ${L.night || 1}</span><b>${esc(theme.name)}</b><span class="note">${esc(theme.line)}</span></div>
@@ -3518,7 +3580,7 @@ function openLobby() {
 ACT.seat = s => { if (!NET) return; if (NET.host) { const L = NET.lobby; if (L.seats[s]) return; for (const x of SEATS) if (L.seats[x] === NET.id) L.seats[x] = null; L.seats[s] = NET.id; L.players[NET.id] = playerInfo(s); pushLobby(); openLobby(); } else sendNet('seat', { seat: s }); };
 ACT.lobbyPerks = () => { const s = mySeat(); if (s) openPerks(s === 'robber' ? 'robber' : 'guard'); };
 ACT.lobbyStart = () => hostStart();
-ACT.leave = () => { if (NET && NET.host) sendNet('gone', {}); netLeave(); };
+ACT.leave = () => { findGame.token = (findGame.token || 0) + 1; if (NET && NET.host) sendNet('gone', {}); netLeave(); };
 ACT.lobby = () => openLobby();
 function perksChosenOnline(role) {
   if (!NET) return false;
@@ -3716,7 +3778,7 @@ function frame(now) {
   if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) bannerEl.classList.remove('show'); }
   requestAnimationFrame(frame);
 }
-window.__graveShift = { get net() { return NET; }, netStart: (h, c) => netStart(h, c), hostStart: () => hostStart(), seat: s => ACT.seat(s), get myslot() { return MYSLOT; }, get robberCtl() { return ROBBER_CTL; }, onUse: () => onUse(), get digging() { return digging; }, ringHit: () => !!digging && digging.wait <= 0 && Math.abs(ringR() - RING_T) <= winPx(digging.g) * 0.5, get vault() { return vault; }, get maus() { return maus; }, get objective() { return objective(); }, get jewelsBanked() { return jewelsBanked; }, get keyLocked() { return keyLocked; }, get layout() { return { MAUS, HUT, EXITS, TREES, SPOTS, U, MW, MH }; }, bank: () => bank(), get rPerks() { return rPerks; }, setRobberPerks: a => { rPerks = new Set(a); perkUse = { smoke: rp('smokeBomb') ? 1 : 0, decoy: rp('decoyBell') ? 1 : 0 }; }, setGuardPerks: (i, a) => { keepers[i].perks = new Set(a); }, get smokes() { return smokes; }, get pings() { return pings; }, get prints() { return prints; }, get perkUse() { return perkUse; }, useSmoke: () => useSmoke(), useDecoy: (x, y) => useDecoy(x, y), canSee: i => canSee(keepers[i]), seesRobber: i => guardSeesRobber(keepers[i]), bagCap: () => bagCap(), kRange: i => kRange(keepers[i]), set save_perks(v) { save.perks = v; }, openPerks: r => openPerks(r), get st() { return st; }, struggle: i => startStruggle(keepers[i]), stR: () => st ? stR() : -1, RING_T, P, K, get role() { return ROLE; }, get bot() { return botR; }, get banked() { return banked; }, get lives() { return lives; }, get target() { return TARGET; }, startMatch: r => startMatch(r), get locked() { return locked; }, use: () => onUse(), search: (i, g, t) => startGraveSearch(keepers[i], g, t), get hidden() { return hidden; }, get gs() { return gs; }, set stun(v) { stunT = v; }, grab: () => playerGrab(), canGrab: () => canGrab(), robberShown: () => robberShown(), sim: n => { for (let i = 0; i < n && mode === 'play'; i++) update(1 / 30); return mode; }, get mode() { return mode; }, get timeLeft() { return timeLeft; }, get robbed() { return robbedCount; }, get keepers() { return keepers; }, addHeat: n => addHeat(n), get graves() { return graves; }, get pickups() { return pickups; }, get bag() { return bag; }, mk, ITEM, endRun: r => endRun(r), get theme() { return THEME.name; } };
+window.__graveShift = { get net() { return NET; }, findGame: () => findGame(), get rooms() { return LW ? LW.rooms() : null; }, netStart: (h, c) => netStart(h, c), hostStart: () => hostStart(), seat: s => ACT.seat(s), get myslot() { return MYSLOT; }, get robberCtl() { return ROBBER_CTL; }, onUse: () => onUse(), get digging() { return digging; }, ringHit: () => !!digging && digging.wait <= 0 && Math.abs(ringR() - RING_T) <= winPx(digging.g) * 0.5, get vault() { return vault; }, get maus() { return maus; }, get objective() { return objective(); }, get jewelsBanked() { return jewelsBanked; }, get keyLocked() { return keyLocked; }, get layout() { return { MAUS, HUT, EXITS, TREES, SPOTS, U, MW, MH }; }, bank: () => bank(), get rPerks() { return rPerks; }, setRobberPerks: a => { rPerks = new Set(a); perkUse = { smoke: rp('smokeBomb') ? 1 : 0, decoy: rp('decoyBell') ? 1 : 0 }; }, setGuardPerks: (i, a) => { keepers[i].perks = new Set(a); }, get smokes() { return smokes; }, get pings() { return pings; }, get prints() { return prints; }, get perkUse() { return perkUse; }, useSmoke: () => useSmoke(), useDecoy: (x, y) => useDecoy(x, y), canSee: i => canSee(keepers[i]), seesRobber: i => guardSeesRobber(keepers[i]), bagCap: () => bagCap(), kRange: i => kRange(keepers[i]), set save_perks(v) { save.perks = v; }, openPerks: r => openPerks(r), get st() { return st; }, struggle: i => startStruggle(keepers[i]), stR: () => st ? stR() : -1, RING_T, P, K, get role() { return ROLE; }, get bot() { return botR; }, get banked() { return banked; }, get lives() { return lives; }, get target() { return TARGET; }, startMatch: r => startMatch(r), get locked() { return locked; }, use: () => onUse(), search: (i, g, t) => startGraveSearch(keepers[i], g, t), get hidden() { return hidden; }, get gs() { return gs; }, set stun(v) { stunT = v; }, grab: () => playerGrab(), canGrab: () => canGrab(), robberShown: () => robberShown(), sim: n => { for (let i = 0; i < n && mode === 'play'; i++) update(1 / 30); return mode; }, get mode() { return mode; }, get timeLeft() { return timeLeft; }, get robbed() { return robbedCount; }, get keepers() { return keepers; }, addHeat: n => addHeat(n), get graves() { return graves; }, get pickups() { return pickups; }, get bag() { return bag; }, mk, ITEM, endRun: r => endRun(r), get theme() { return THEME.name; } };
 try { gfx = initGfx(); } catch (e) { console.error(e); gfx = null; }
 resize();
 chooseTheme(); genLayout(); if (gfx) gfx.buildWorld(); genNight();
