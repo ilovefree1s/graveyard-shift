@@ -12,6 +12,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -158,6 +160,13 @@ h2.code{font-family:var(--mono);font-size:44px;letter-spacing:.18em;color:var(--
 .seat b{font-size:16px}.seat i{color:var(--dim);font-style:normal}
 .seat .ds{font-size:12px;color:#bdb6a2;margin-top:2px}
 .seat button{min-height:44px;min-width:96px;border-radius:8px;border:1px solid #8a6b2a;background:var(--brass);color:#1b150a;font-weight:800;text-transform:uppercase;font-size:12px;letter-spacing:.06em}
+/* random robber wheel */
+.seat.spin{transition:background .08s}
+.seat.spin.rob{border-color:var(--blood);background:#2c1512}
+.seat.spin.rob b{color:#ffc2b4}
+.seat.spin.won{animation:spinWon .5s ease-out 2}
+@keyframes spinWon{50%{transform:scale(1.04);box-shadow:0 0 0 3px var(--blood)}}
+.spinmsg{text-align:center;font-family:var(--display);font-size:26px;color:#ffc2b4;text-shadow:0 0 18px #d0583f88}
 /* perk picker */
 .perks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
 .perk{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:66px;touch-action:manipulation}
@@ -3426,7 +3435,7 @@ function netStart(asHost, code) {
 function sendNet(t, d, to) { if (NET && NET.tr) NET.tr.send({ t, f: NET.id, d, to }); }
 function playerInfo(seat) {
   const role = seat === 'robber' ? 'robber' : seat ? 'guard' : null;
-  return { name: (save.name || 'Player').slice(0, 14), perks: role ? (save.perks && save.perks[role]) || [] : [], up: { ...save.up }, gup: { ...save.gup } };
+  return { name: (save.name || 'Player').slice(0, 14), perks: role ? (save.perks && save.perks[role]) || [] : [], up: { ...save.up }, gup: { ...save.gup }, allPerks: { robber: (save.perks && save.perks.robber) || [], guard: (save.perks && save.perks.guard) || [] } };
 }
 function mySeat() { const L = NET && (NET.match || NET.lobby); if (!L) return null; return SEATS.find(s => L.seats[s] === NET.id) || null; }
 function seatOf(pid) { const L = NET.match || NET.lobby; return SEATS.find(s => L.seats[s] === pid) || null; }
@@ -3464,8 +3473,9 @@ function onNet(m) {
       const s = seatOf(m.f); L.players[m.f].perks = (d.allPerks && d.allPerks[s === 'robber' ? 'robber' : 'guard']) || [];
       L.players[m.f].allPerks = d.allPerks || {};
       pushLobby();
-    } else if (m.t === 'seat') {
-      if (mode === 'play') return;
+    } else if (m.t === 'spinReq') { hostSpin(); }
+    else if (m.t === 'seat') {
+      if (mode === 'play' || NET.spin) return;
       if (SEATS.includes(d.seat) && !L.seats[d.seat] && L.players[m.f]) {
         for (const s of SEATS) if (L.seats[s] === m.f) L.seats[s] = null;
         L.seats[d.seat] = m.f;
@@ -3480,6 +3490,7 @@ function onNet(m) {
   } else {
     if (m.t === 'lobby') { const key = JSON.stringify(d), changed = key !== NET.lastLobby; NET.lastLobby = key; NET.lobby = d; NET.hostId = d.hostId; if (mode !== 'play' && mode !== 'ending' && (modalKind === 'connecting' || (modalKind === 'lobby' && changed))) openLobby(); }
     else if (m.t === 'full') { netLeave(true); findGame(); }
+    else if (m.t === 'spin') runSpin(d);
     else if (m.t === 'start') startOnline(d);
     else if (m.t === 'snap') { if (NET.match && (mode === 'play' || mode === 'ending')) applySnap(d); }
     else if (m.t === 'gone') { netFail('The host left, so that room closed.', true); }
@@ -3559,9 +3570,10 @@ function openLobby() {
   mode = 'lobby'; $('hud').hidden = true; $('say').hidden = true;
   const L = NET.lobby;
   if (!L) return showConnecting('Waiting for the host…');
-  const mine = mySeat();
-  const rows = SEATS.map(s => {
-    const pid = L.seats[s], p = pid && L.players[pid], you = pid === NET.id;
+  const mine = mySeat(), sp = NET.spin;
+  const rows = SEATS.map((s, si) => {
+    const pid = sp ? sp.view[si] : L.seats[s], p = pid && L.players[pid], you = pid === NET.id;
+    if (sp) return `<div class="seat spin${si === 0 ? ' rob' : ''}${sp.done && si === 0 ? ' won' : ''}"><div style="min-width:0"><div class="eyebrow">${SEAT_NAME[s]}</div><b>${p ? esc(p.name) + (you ? ' (you)' : '') : '<i>Bot</i>'}</b></div></div>`;
     const who = p ? esc(p.name) + (you ? ' (you)' : '') + (pid === L.hostId ? ' · host' : '') : '<i>Bot</i>';
     const perks = p && p.perks && p.perks.length ? p.perks.map(perkName).join(', ') : (p ? 'No perks picked' : 'Random perks');
     return `<div class="seat${you ? ' me' : ''}"><div style="min-width:0"><div class="eyebrow">${SEAT_NAME[s]}</div><b>${who}</b><div class="ds">${perks}</div></div>
@@ -3572,14 +3584,15 @@ function openLobby() {
     <div><div class="eyebrow">Online game</div><h2>${Object.keys(L.players).length} ${Object.keys(L.players).length === 1 ? 'player' : 'players'} here</h2></div>
     <p class="note">${SEATS.some(x => !L.seats[x]) ? 'New players drop in as they search. Bots play any empty seats.' : 'Every seat is taken.'}</p>
     <div class="seats">${rows}</div>
-    ${mine ? `<div class="row"><button class="btn" data-act="lobbyPerks">Pick your perks</button></div>` : ''}
+    ${NET.spinMsg ? `<div class="spinmsg">${esc(NET.spinMsg)}</div>` : ''}
+    ${mine && !sp ? `<div class="row"><button class="btn" data-act="lobbyPerks">Pick your perks</button>${Object.keys(L.players).length > 1 ? `<button class="btn" data-act="spin">Random robber</button>` : ''}</div>` : ''}
     <div class="job"><span class="eyebrow">Night ${L.night || 1}</span><b>${esc(theme.name)}</b><span class="note">${esc(theme.line)}</span></div>
-    ${NET.host ? `<div class="row"><button class="btn primary" data-act="lobbyStart">Start the night</button></div>` : `<p class="note">Waiting for the host to start the night…</p>`}
+    ${NET.host ? `<div class="row"><button class="btn primary" data-act="lobbyStart"${sp ? ' disabled' : ''}>Start the night</button></div>` : `<p class="note">Waiting for the host to start the night…</p>`}
     <button class="link" data-act="leave">Leave room</button>`);
 }
-ACT.seat = s => { if (!NET) return; if (NET.host) { const L = NET.lobby; if (L.seats[s]) return; for (const x of SEATS) if (L.seats[x] === NET.id) L.seats[x] = null; L.seats[s] = NET.id; L.players[NET.id] = playerInfo(s); pushLobby(); openLobby(); } else sendNet('seat', { seat: s }); };
+ACT.seat = s => { if (!NET || NET.spin) return; if (NET.host) { const L = NET.lobby; if (L.seats[s]) return; for (const x of SEATS) if (L.seats[x] === NET.id) L.seats[x] = null; L.seats[s] = NET.id; L.players[NET.id] = playerInfo(s); pushLobby(); openLobby(); } else sendNet('seat', { seat: s }); };
 ACT.lobbyPerks = () => { const s = mySeat(); if (s) openPerks(s === 'robber' ? 'robber' : 'guard'); };
-ACT.lobbyStart = () => hostStart();
+ACT.lobbyStart = () => { if (!NET.spin) hostStart(); };
 ACT.leave = () => { findGame.token = (findGame.token || 0) + 1; if (NET && NET.host) sendNet('gone', {}); netLeave(); };
 ACT.lobby = () => openLobby();
 function perksChosenOnline(role) {
@@ -3588,6 +3601,50 @@ function perksChosenOnline(role) {
   if (NET.host) { Object.assign(NET.lobby.players[NET.id], info); pushLobby(); } else { NET.lobby && NET.lobby.players[NET.id] && (NET.lobby.players[NET.id].perks = info.perks); sendNet('perks', info); }
   openLobby(); return true;
 }
+
+// ---------- random robber: everyone's name spins through the seats and stops ----------
+const spinDelay = (i, n) => 70 + 430 * Math.pow(i / n, 2.4);
+const spinDuration = n => { let t = 0; for (let i = 1; i <= n; i++) t += spinDelay(i, n); return t; };
+const rotView = (base, k) => SEATS.map((_, i) => base[((i - k) % 4 + 4) % 4]);
+function hostSpin() {
+  const L = NET.lobby;
+  if (mode === 'play' || mode === 'ending' || NET.spin) return;
+  const humans = Object.keys(L.players); if (humans.length < 2) return;
+  const base = SEATS.map(x => L.seats[x] || null);
+  const chosen = humans[Math.floor(Math.random() * humans.length)];
+  const k = (4 - base.indexOf(chosen)) % 4, steps = 12 + k;
+  const spin = { base, steps };
+  sendNet('spin', spin); runSpin(spin);
+  setTimeout(() => {
+    if (!NET || !NET.host) return;
+    const fin = rotView(base, steps);
+    SEATS.forEach((x, i) => { L.seats[x] = fin[i]; });
+    for (const pid of humans) { const p = L.players[pid]; if (!p) continue; const r = seatOf(pid) === 'robber' ? 'robber' : 'guard'; p.perks = (p.allPerks && p.allPerks[r]) || []; }
+    pushLobby();
+  }, spinDuration(steps) + 150);
+}
+function runSpin(spin) {
+  if (!NET) return;
+  const names = {}; const L = NET.lobby || { players: {} };
+  NET.spin = { ...spin, i: 0, view: spin.base.slice(), names };
+  const step = () => {
+    if (!NET || !NET.spin) return;
+    const sp = NET.spin; sp.i++;
+    sp.view = rotView(sp.base, sp.i);
+    SFX.click();
+    if (modalKind === 'lobby') openLobby();
+    if (sp.i < sp.steps) setTimeout(step, spinDelay(sp.i + 1, sp.steps));
+    else {
+      const rid = sp.view[0], rn = rid && L.players[rid] ? L.players[rid].name : 'Someone';
+      SFX.bell(); sp.done = true; NET.spinMsg = rid === NET.id ? 'You’re the robber!' : `${rn} is the robber!`;
+      if (modalKind === 'lobby') openLobby();
+      setTimeout(() => { if (NET) { NET.spin = null; if (modalKind === 'lobby') openLobby(); } }, 1600);
+      setTimeout(() => { if (NET) { NET.spinMsg = null; if (modalKind === 'lobby') openLobby(); } }, 5000);
+    }
+  };
+  setTimeout(step, spinDelay(1, spin.steps));
+}
+ACT.spin = () => { if (!NET || NET.spin) return; SFX.init(); if (NET.host) hostSpin(); else sendNet('spinReq', {}, NET.hostId); };
 
 // ---------- starting a night ----------
 function hostStart() {
@@ -3778,7 +3835,7 @@ function frame(now) {
   if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) bannerEl.classList.remove('show'); }
   requestAnimationFrame(frame);
 }
-window.__graveShift = { get net() { return NET; }, findGame: () => findGame(), get rooms() { return LW ? LW.rooms() : null; }, netStart: (h, c) => netStart(h, c), hostStart: () => hostStart(), seat: s => ACT.seat(s), get myslot() { return MYSLOT; }, get robberCtl() { return ROBBER_CTL; }, onUse: () => onUse(), get digging() { return digging; }, ringHit: () => !!digging && digging.wait <= 0 && Math.abs(ringR() - RING_T) <= winPx(digging.g) * 0.5, get vault() { return vault; }, get maus() { return maus; }, get objective() { return objective(); }, get jewelsBanked() { return jewelsBanked; }, get keyLocked() { return keyLocked; }, get layout() { return { MAUS, HUT, EXITS, TREES, SPOTS, U, MW, MH }; }, bank: () => bank(), get rPerks() { return rPerks; }, setRobberPerks: a => { rPerks = new Set(a); perkUse = { smoke: rp('smokeBomb') ? 1 : 0, decoy: rp('decoyBell') ? 1 : 0 }; }, setGuardPerks: (i, a) => { keepers[i].perks = new Set(a); }, get smokes() { return smokes; }, get pings() { return pings; }, get prints() { return prints; }, get perkUse() { return perkUse; }, useSmoke: () => useSmoke(), useDecoy: (x, y) => useDecoy(x, y), canSee: i => canSee(keepers[i]), seesRobber: i => guardSeesRobber(keepers[i]), bagCap: () => bagCap(), kRange: i => kRange(keepers[i]), set save_perks(v) { save.perks = v; }, openPerks: r => openPerks(r), get st() { return st; }, struggle: i => startStruggle(keepers[i]), stR: () => st ? stR() : -1, RING_T, P, K, get role() { return ROLE; }, get bot() { return botR; }, get banked() { return banked; }, get lives() { return lives; }, get target() { return TARGET; }, startMatch: r => startMatch(r), get locked() { return locked; }, use: () => onUse(), search: (i, g, t) => startGraveSearch(keepers[i], g, t), get hidden() { return hidden; }, get gs() { return gs; }, set stun(v) { stunT = v; }, grab: () => playerGrab(), canGrab: () => canGrab(), robberShown: () => robberShown(), sim: n => { for (let i = 0; i < n && mode === 'play'; i++) update(1 / 30); return mode; }, get mode() { return mode; }, get timeLeft() { return timeLeft; }, get robbed() { return robbedCount; }, get keepers() { return keepers; }, addHeat: n => addHeat(n), get graves() { return graves; }, get pickups() { return pickups; }, get bag() { return bag; }, mk, ITEM, endRun: r => endRun(r), get theme() { return THEME.name; } };
+window.__graveShift = { spin: () => ACT.spin(), get net() { return NET; }, findGame: () => findGame(), get rooms() { return LW ? LW.rooms() : null; }, netStart: (h, c) => netStart(h, c), hostStart: () => hostStart(), seat: s => ACT.seat(s), get myslot() { return MYSLOT; }, get robberCtl() { return ROBBER_CTL; }, onUse: () => onUse(), get digging() { return digging; }, ringHit: () => !!digging && digging.wait <= 0 && Math.abs(ringR() - RING_T) <= winPx(digging.g) * 0.5, get vault() { return vault; }, get maus() { return maus; }, get objective() { return objective(); }, get jewelsBanked() { return jewelsBanked; }, get keyLocked() { return keyLocked; }, get layout() { return { MAUS, HUT, EXITS, TREES, SPOTS, U, MW, MH }; }, bank: () => bank(), get rPerks() { return rPerks; }, setRobberPerks: a => { rPerks = new Set(a); perkUse = { smoke: rp('smokeBomb') ? 1 : 0, decoy: rp('decoyBell') ? 1 : 0 }; }, setGuardPerks: (i, a) => { keepers[i].perks = new Set(a); }, get smokes() { return smokes; }, get pings() { return pings; }, get prints() { return prints; }, get perkUse() { return perkUse; }, useSmoke: () => useSmoke(), useDecoy: (x, y) => useDecoy(x, y), canSee: i => canSee(keepers[i]), seesRobber: i => guardSeesRobber(keepers[i]), bagCap: () => bagCap(), kRange: i => kRange(keepers[i]), set save_perks(v) { save.perks = v; }, openPerks: r => openPerks(r), get st() { return st; }, struggle: i => startStruggle(keepers[i]), stR: () => st ? stR() : -1, RING_T, P, K, get role() { return ROLE; }, get bot() { return botR; }, get banked() { return banked; }, get lives() { return lives; }, get target() { return TARGET; }, startMatch: r => startMatch(r), get locked() { return locked; }, use: () => onUse(), search: (i, g, t) => startGraveSearch(keepers[i], g, t), get hidden() { return hidden; }, get gs() { return gs; }, set stun(v) { stunT = v; }, grab: () => playerGrab(), canGrab: () => canGrab(), robberShown: () => robberShown(), sim: n => { for (let i = 0; i < n && mode === 'play'; i++) update(1 / 30); return mode; }, get mode() { return mode; }, get timeLeft() { return timeLeft; }, get robbed() { return robbedCount; }, get keepers() { return keepers; }, addHeat: n => addHeat(n), get graves() { return graves; }, get pickups() { return pickups; }, get bag() { return bag; }, mk, ITEM, endRun: r => endRun(r), get theme() { return THEME.name; } };
 try { gfx = initGfx(); } catch (e) { console.error(e); gfx = null; }
 resize();
 chooseTheme(); genLayout(); if (gfx) gfx.buildWorld(); genNight();
