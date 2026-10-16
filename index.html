@@ -22,6 +22,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -1233,8 +1235,8 @@ function bank(ex) {
 // sprint only recharges while no guard is within flashlight range of the robber
 // a guard on foot is a little slower than the robber; guards win by cornering him, not outrunning him
 const GUARD_SPEED = 142;
-// two or more guards closing in: adrenaline makes him quicker and his sprint keeps recharging
-const swarmed = () => keepers.filter(k => Math.hypot(k.x - P.x, k.y - P.y) < 300).length >= 2;
+// all three guards closing in: adrenaline makes him quicker and his sprint keeps recharging
+const swarmed = () => keepers.filter(k => Math.hypot(k.x - P.x, k.y - P.y) < 300).length >= 3;
 const sprintPaused = () => !rp('secondBreath') && !swarmed() && keepers.some(k => Math.hypot(k.x - P.x, k.y - P.y) < kRange(k));
 function sprint() {
   if (isGuard()) {
@@ -3450,7 +3452,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '1.2';
+const GS_VERSION = '1.3';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
