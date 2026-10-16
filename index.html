@@ -16,6 +16,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -162,6 +164,8 @@ h2.code{font-family:var(--mono);font-size:44px;letter-spacing:.18em;color:var(--
 .seat b{font-size:16px}.seat i{color:var(--dim);font-style:normal}
 .seat .ds{font-size:12px;color:#bdb6a2;margin-top:2px}
 .seat button{min-height:44px;min-width:96px;border-radius:8px;border:1px solid #8a6b2a;background:var(--brass);color:#1b150a;font-weight:800;text-transform:uppercase;font-size:12px;letter-spacing:.06em}
+/* connection status */
+.netst{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center;margin:0}
 /* random robber wheel */
 .seat.spin{transition:background .08s}
 .seat.spin.rob{border-color:var(--blood);background:#2c1512}
@@ -3336,7 +3340,9 @@ const NET_HZ = 8, POS_HZ = 5;
 const r0 = v => Math.round(v), r2 = v => Math.round(v * 100) / 100;
 const newId = () => Math.random().toString(36).slice(2, 10);
 const roomCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
-const useLocalNet = () => /[?&#]localnet/.test(location.href) || !window.supabase;
+const useLocalNet = () => /[?&#]localnet/.test(location.href);
+const GAME_URL = 'https://ilovefree1s.github.io/graveyard-shift/';
+const onGameSite = () => /github\.io$/.test(location.hostname) || useLocalNet();
 
 // ---- transports: Supabase for real games; BroadcastChannel (same browser, other tabs) for testing ----
 function makeTransport(code, id, h) {
@@ -3354,9 +3360,9 @@ function makeTransport(code, id, h) {
   ch.on('broadcast', { event: 'm' }, ({ payload }) => { if (payload && payload.f !== id) h.msg(payload); });
   ch.on('presence', { event: 'sync' }, () => h.peers(Object.keys(ch.presenceState())));
   let ok = false;
-  ch.subscribe(status => {
+  ch.subscribe((status, err) => {
     if (status === 'SUBSCRIBED' && !ok) { ok = true; ch.track({ at: Date.now() }); h.ready(); }
-    else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && !ok) h.fail(status);
+    else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && !ok) h.fail(status + (err && err.message ? ' (' + err.message + ')' : ''));
   });
   return { send: m => ch.send({ type: 'broadcast', event: 'm', payload: m }), close: () => { try { sb.removeChannel(ch); } catch (e) {} } };
 }
@@ -3374,14 +3380,19 @@ function lobbyWatch(onRooms) {
     const list = () => [...seen.values()].filter(r => Date.now() - r.at < 4000).map(r => r.meta);
     bc.onmessage = e => { const m = e.data; if (!m || m.k === myKey) return; if (m.meta) seen.set(m.k, { meta: m.meta, at: Date.now() }); else seen.delete(m.k); onRooms(list()); };
     const iv = setInterval(() => { if (meta) bc.postMessage({ k: myKey, meta }); onRooms(list()); }, 800);
-    return { set: m => { meta = m; bc.postMessage({ k: myKey, meta: m }); }, rooms: list, close: () => { clearInterval(iv); bc.postMessage({ k: myKey, meta: null }); bc.close(); } };
+    return { status: 'ok', set: m => { meta = m; bc.postMessage({ k: myKey, meta: m }); }, rooms: list, close: () => { clearInterval(iv); bc.postMessage({ k: myKey, meta: null }); bc.close(); } };
   }
+  if (!window.supabase) return { status: 'error: the online library did not load', set: () => {}, rooms: () => [], close: () => {} };
   const ch = sbClient().channel('gs-rooms', { config: { presence: { key: myKey } } });
   let meta = null, ready = false;
+  const W = { status: 'connecting' };
   const list = () => Object.values(ch.presenceState()).flat().map(p => p.meta).filter(Boolean);
   ch.on('presence', { event: 'sync' }, () => onRooms(list()));
-  ch.subscribe(st => { if (st === 'SUBSCRIBED') { ready = true; if (meta) ch.track({ meta }); onRooms(list()); } });
-  return { set: m => { meta = m; if (ready) { if (m) ch.track({ meta: m }); else ch.untrack(); } }, rooms: list, close: () => { try { sbClient().removeChannel(ch); } catch (e) {} } };
+  ch.subscribe((st, err) => {
+    if (st === 'SUBSCRIBED') { ready = true; W.status = 'ok'; if (meta) ch.track({ meta }); onRooms(list()); }
+    else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') { W.status = 'error: ' + st + (err && err.message ? ' (' + err.message + ')' : ''); onRooms(list()); }
+  });
+  return Object.assign(W, { set: m => { meta = m; if (ready) { if (m) ch.track({ meta: m }); else ch.untrack(); } }, rooms: list, close: () => { try { sbClient().removeChannel(ch); } catch (e) {} } });
 }
 function stopWatch() { if (LW) { LW.close(); LW = null; } }
 // look for an open room; if there is none, open one and let the next player find it
@@ -3410,6 +3421,7 @@ function advertise() {
   const playing = mode === 'play' || mode === 'ending';
   const hp = L.players[NET.id];
   LW.set({ code: L.code, n, free, open: !playing && free > 0, t: NET.created, h: hp ? hp.name : 'Someone', night: (save.nights || 0) + 1, playing });
+  if (modalKind === 'lobby' && LW.status !== NET.lwShown) { NET.lwShown = LW.status; openLobby(); }
   if (n === 1 && !playing && mode === 'lobby' && !NET.manual) {
     const other = LW.rooms().filter(r => r.open && r.free > 0 && r.code !== L.code && (r.n > 1 || r.t < NET.created)).sort((a, b) => b.n - a.n || a.t - b.t)[0];
     if (other) { LW.set(null); netLeave(true); netStart(false, other.code); }
@@ -3428,9 +3440,10 @@ function netStart(asHost, code) {
   }
   showConnecting(asHost ? 'Opening a new room…' : 'Joining a game…');
   const failT = setTimeout(() => { if (NET && !NET.connected) netFail('Couldn’t reach the game server. Check your connection, or open the game from its web link (online play does not work inside the preview).'); }, 9000);
+  if (!useLocalNet() && !window.supabase) { clearTimeout(failT); netFail('The online library didn’t load. Check your connection and reload the page.'); return; }
   NET.tr = makeTransport(code, id, {
     ready: () => { clearTimeout(failT); if (!NET) return; NET.connected = true; if (NET.host) openLobby(); else sendNet('hello', helloInfo()); },
-    fail: () => { clearTimeout(failT); netFail('Couldn’t reach the game server.'); },
+    fail: why => { clearTimeout(failT); netFail('Couldn’t reach the game server: ' + why); },
     msg: m => { try { onNet(m); } catch (e) { console.error(e); } },
     peers: list => { if (!NET) return; NET.peers = list; onPeers(list); },
   });
@@ -3546,6 +3559,7 @@ function openOnline() {
     <label class="fld"><span>Your name</span><input id="nmIn" maxlength="14" value="${esc(save.name || '')}" placeholder="Name" autocomplete="off"></label>
     <div class="row"><button class="btn primary" data-act="hostLobby">Host a lobby</button><button class="btn primary" data-act="browse">Join a lobby</button></div>
     <div class="row"><button class="btn" data-act="find">Quick match</button></div>
+    ${onGameSite() ? '' : `<p class="warn">Online play only works from the game's web page: ${GAME_URL}</p>`}
     <p class="note"><b>Host</b> opens your own lobby that friends can pick from the list. <b>Join</b> shows every open lobby. <b>Quick match</b> drops you into any lobby with a free seat. One robber and up to three guards; bots play any empty seats.</p>
     <button class="link" data-act="title">Back</button>`);
 }
@@ -3564,11 +3578,13 @@ function openBrowse() {
   const draw = (first) => {
     if (!LW || (!first && modalKind !== 'browse')) return;
     const rooms = LW.rooms().filter(r => r.code).sort((a, b) => (b.open - a.open) || b.n - a.n || a.t - b.t);
-    const key = JSON.stringify(rooms.map(r => [r.code, r.n, r.free, r.open, r.h]));
+    const key = JSON.stringify([LW.status, rooms.map(r => [r.code, r.n, r.free, r.open, r.h])]);
     if (key === lastKey && modalKind === 'browse') return; lastKey = key;
     const list = rooms.length ? rooms.map(r => `<div class="seat"><div style="min-width:0"><div class="eyebrow">${r.playing ? 'Night under way' : 'Night ' + (r.night || 1)}</div><b>${esc(r.h || 'Someone')}’s lobby</b><div class="ds">${r.n} ${r.n === 1 ? 'player' : 'players'} · ${r.free} free ${r.free === 1 ? 'seat' : 'seats'}</div></div>${r.open ? `<button data-act="joinRoom" data-arg="${esc(r.code)}">Join</button>` : `<span class="ds">${r.playing ? 'Playing' : 'Full'}</span>`}</div>`).join('')
       : `<p class="note">Looking for open lobbies… none yet.</p>`;
-    show('browse', `<div><div class="eyebrow">Online</div><h2>Join a lobby</h2></div><div class="seats">${list}</div>
+    const stTxt = LW.status === 'ok' ? '● Connected to the lobby list' : LW.status === 'connecting' ? '○ Connecting to the lobby list…' : '✕ ' + LW.status;
+    show('browse', `<div><div class="eyebrow">Online</div><h2>Join a lobby</h2></div>${onGameSite() ? '' : `<p class="warn">Online play only works from ${GAME_URL} (not from this preview).</p>`}<div class="seats">${list}</div>
+      <p class="netst">${esc(stTxt)}</p>
       <div class="row"><button class="btn primary" data-act="hostLobby">Host your own</button></div>
       <button class="link" data-act="title">Back</button>`);
   };
@@ -3615,6 +3631,7 @@ function openLobby() {
     ${mine && !sp ? `<div class="row"><button class="btn" data-act="lobbyPerks">Pick your perks</button>${Object.keys(L.players).length > 1 ? `<button class="btn" data-act="spin">Random robber</button>` : ''}</div>` : ''}
     <div class="job"><span class="eyebrow">Night ${L.night || 1}</span><b>${esc(theme.name)}</b><span class="note">${esc(theme.line)}</span></div>
     ${NET.host ? `<div class="row"><button class="btn primary" data-act="lobbyStart"${sp ? ' disabled' : ''}>Start the night</button></div>` : `<p class="note">Waiting for the host to start the night…</p>`}
+    ${NET.host && LW ? `<p class="netst">${LW.status === 'ok' ? '● Your lobby is listed: others can find it under Join a lobby' : LW.status === 'connecting' ? '○ Getting your lobby listed…' : '✕ Lobby list: ' + esc(LW.status)}</p>` : ''}
     <button class="link" data-act="leave">Leave room</button>`);
 }
 ACT.seat = s => { if (!NET || NET.spin) return; if (NET.host) { const L = NET.lobby; if (L.seats[s]) return; for (const x of SEATS) if (L.seats[x] === NET.id) L.seats[x] = null; L.seats[s] = NET.id; L.players[NET.id] = playerInfo(s); pushLobby(); openLobby(); } else sendNet('seat', { seat: s }); };
