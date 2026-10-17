@@ -28,6 +28,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -791,6 +793,11 @@ function updateKeeper(k, dt) {
     }
   }
   const hf = heat / 100, sp = THEME.keeper;
+  // the crypt watch is a shift, not a life sentence: he guards it a while, then goes off on rounds and leaves a window
+  if (k.post && gameT > (k.postT || 0)) {
+    k.postOn = !k.postOn; k.postT = gameT + (k.postOn ? rand(22, 32) : rand(35, 50));
+    if (!k.postOn) { k.postPt = null; k.wp = nearestWp(k); }
+  }
   // the flashlight sweeps side to side while he walks, and wider while he searches
   const sweep = k.state === 'chase' ? 0 : k.state === 'search' ? 1.05 : 0.42;
   k.look += (Math.sin(gameT * (k.id === 2 ? 0.95 : 0.75) + k.id * 2) * sweep - k.look) * Math.min(1, dt * 3);
@@ -834,7 +841,7 @@ function updateKeeper(k, dt) {
     const l = nearestLockup(k);
     if (!k.carry.length) { k.state = 'patrol'; k.wp = nearestWp(k); }
     else kMove(k, l.x, l.y, (78 + 30 * hf) * sp * 0.9, dt);
-  } else if (k.state === 'patrol' && k.post && vault >= 1 && vault < 3 && !keyLocked) {
+  } else if (k.state === 'patrol' && k.post && k.postOn && vault >= 1 && vault < 3 && !keyLocked) {
     if (!k.postPt || kMove(k, k.postPt[0], k.postPt[1], (52 + 30 * hf) * sp, dt)) { const c = cryptFront(); k.postPt = freePt(c.x + rand(-170, 170), c.y + rand(-10, 140)); }
   } else if (k.state === 'patrol') {
     const [x, y] = WP[k.wp % WP.length];
@@ -1633,7 +1640,7 @@ function keyFound() {
   const c = cryptFront();
   const bots = keepers.filter((k, i) => !(isGuard() && i === 0));
   const k = bots.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0];
-  if (k) k.post = true;
+  if (k) { k.post = true; k.postOn = false; k.postT = gameT; }
   ping(c.x, c.y - 30, 'Crypt', '#ecbc52', 6);
 }
 function unlockCrypt() {
@@ -3506,7 +3513,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '1.5';
+const GS_VERSION = '1.6';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
@@ -4072,7 +4079,7 @@ function frame(now) {
   if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) bannerEl.classList.remove('show'); }
   requestAnimationFrame(frame);
 }
-window.__graveShift = { get camYaw() { return camYaw; }, hostLobby: () => ACT.hostLobby(), browse: () => ACT.browse(), spin: () => ACT.spin(), get net() { return NET; }, findGame: () => findGame(), get rooms() { return LW ? LW.rooms() : null; }, netStart: (h, c) => netStart(h, c), hostStart: () => hostStart(), seat: s => ACT.seat(s), get myslot() { return MYSLOT; }, get robberCtl() { return ROBBER_CTL; }, onUse: () => onUse(), get digging() { return digging; }, ringHit: () => !!digging && digging.wait <= 0 && Math.abs(ringR() - RING_T) <= winPx(digging.g) * 0.5, get vault() { return vault; }, get maus() { return maus; }, get objective() { return objective(); }, get jewelsBanked() { return jewelsBanked; }, get keyLocked() { return keyLocked; }, get layout() { return { MAUS, HUT, EXITS, TREES, SPOTS, U, MW, MH }; }, bank: () => bank(), get rPerks() { return rPerks; }, setRobberPerks: a => { rPerks = new Set(a); perkUse = { smoke: rp('smokeBomb') ? 1 : 0, decoy: rp('decoyBell') ? 1 : 0 }; }, setGuardPerks: (i, a) => { keepers[i].perks = new Set(a); }, get smokes() { return smokes; }, get pings() { return pings; }, get prints() { return prints; }, get perkUse() { return perkUse; }, useSmoke: () => useSmoke(), useDecoy: (x, y) => useDecoy(x, y), canSee: i => canSee(keepers[i]), seesRobber: i => guardSeesRobber(keepers[i]), bagCap: () => bagCap(), kRange: i => kRange(keepers[i]), set save_perks(v) { save.perks = v; }, openPerks: r => openPerks(r), get st() { return st; }, struggle: i => startStruggle(keepers[i]), stR: () => st ? stR() : -1, RING_T, P, K, get role() { return ROLE; }, get bot() { return botR; }, get banked() { return banked; }, get lives() { return lives; }, get target() { return TARGET; }, startMatch: r => startMatch(r), get locked() { return locked; }, use: () => onUse(), search: (i, g, t) => startGraveSearch(keepers[i], g, t), get hidden() { return hidden; }, get gs() { return gs; }, set stun(v) { stunT = v; }, grab: () => playerGrab(), canGrab: () => canGrab(), robberShown: () => robberShown(), sim: n => { for (let i = 0; i < n && mode === 'play'; i++) update(1 / 30); return mode; }, get mode() { return mode; }, get timeLeft() { return timeLeft; }, get robbed() { return robbedCount; }, get keepers() { return keepers; }, addHeat: n => addHeat(n), get graves() { return graves; }, get pickups() { return pickups; }, get bag() { return bag; }, mk, ITEM, endRun: r => endRun(r), get theme() { return THEME.name; } };
+window.__graveShift = { get camYaw() { return camYaw; }, set hide(v) { hidden = v; }, hostLobby: () => ACT.hostLobby(), browse: () => ACT.browse(), spin: () => ACT.spin(), get net() { return NET; }, findGame: () => findGame(), get rooms() { return LW ? LW.rooms() : null; }, netStart: (h, c) => netStart(h, c), hostStart: () => hostStart(), seat: s => ACT.seat(s), get myslot() { return MYSLOT; }, get robberCtl() { return ROBBER_CTL; }, onUse: () => onUse(), get digging() { return digging; }, ringHit: () => !!digging && digging.wait <= 0 && Math.abs(ringR() - RING_T) <= winPx(digging.g) * 0.5, get vault() { return vault; }, get maus() { return maus; }, get objective() { return objective(); }, get jewelsBanked() { return jewelsBanked; }, get keyLocked() { return keyLocked; }, get layout() { return { MAUS, HUT, EXITS, TREES, SPOTS, U, MW, MH }; }, bank: () => bank(), get rPerks() { return rPerks; }, setRobberPerks: a => { rPerks = new Set(a); perkUse = { smoke: rp('smokeBomb') ? 1 : 0, decoy: rp('decoyBell') ? 1 : 0 }; }, setGuardPerks: (i, a) => { keepers[i].perks = new Set(a); }, get smokes() { return smokes; }, get pings() { return pings; }, get prints() { return prints; }, get perkUse() { return perkUse; }, useSmoke: () => useSmoke(), useDecoy: (x, y) => useDecoy(x, y), canSee: i => canSee(keepers[i]), seesRobber: i => guardSeesRobber(keepers[i]), bagCap: () => bagCap(), kRange: i => kRange(keepers[i]), set save_perks(v) { save.perks = v; }, openPerks: r => openPerks(r), get st() { return st; }, struggle: i => startStruggle(keepers[i]), stR: () => st ? stR() : -1, RING_T, P, K, get role() { return ROLE; }, get bot() { return botR; }, get banked() { return banked; }, get lives() { return lives; }, get target() { return TARGET; }, startMatch: r => startMatch(r), get locked() { return locked; }, use: () => onUse(), search: (i, g, t) => startGraveSearch(keepers[i], g, t), get hidden() { return hidden; }, get gs() { return gs; }, set stun(v) { stunT = v; }, grab: () => playerGrab(), canGrab: () => canGrab(), robberShown: () => robberShown(), sim: n => { for (let i = 0; i < n && mode === 'play'; i++) update(1 / 30); return mode; }, get mode() { return mode; }, get timeLeft() { return timeLeft; }, get robbed() { return robbedCount; }, get keepers() { return keepers; }, addHeat: n => addHeat(n), get graves() { return graves; }, get pickups() { return pickups; }, get bag() { return bag; }, mk, ITEM, endRun: r => endRun(r), get theme() { return THEME.name; } };
 $('ver').textContent = 'v' + GS_VERSION;
 try { gfx = initGfx(); } catch (e) { console.error(e); gfx = null; }
 resize();
