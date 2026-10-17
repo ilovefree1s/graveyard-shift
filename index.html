@@ -26,6 +26,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -57,7 +59,13 @@ button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 #bView,#bGfx{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:calc(env(safe-area-inset-top,0px) + 72px);pointer-events:auto;background:#0a0f1acc;border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);touch-action:none}
 #bGfx{top:calc(env(safe-area-inset-top,0px) + 108px)}
 #obj{position:absolute;right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 74px);max-width:min(54%,300px);text-align:right;font-size:12px;font-weight:800;letter-spacing:.02em;color:#ecbc52;text-shadow:0 1px 3px #000,0 0 10px #000;line-height:1.3}
-#hud.ending #obj{display:none}
+#hud.ending #obj,#hud.ending #inv{display:none}
+#inv{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 10px);display:flex;gap:3px;padding:4px;background:#0a0f1a99;border:1px solid var(--line);border-radius:7px;pointer-events:none}
+#inv:empty{display:none}
+#inv i{display:block;height:18px;border-radius:3px;border:1px solid #ffffff22;box-sizing:border-box}
+#inv i.it{border-color:#0008}
+#inv i.nx{outline:2px solid #fff;outline-offset:1px;animation:invNx .7s ease-in-out infinite alternate}
+@keyframes invNx{to{outline-color:#fff6}}
 .ctl{position:absolute;right:0;bottom:0;padding:0 calc(env(safe-area-inset-right,0px) + 18px) calc(env(safe-area-inset-bottom,0px) + 22px) 0;display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end}
 #prompt{grid-column:1 / 3;font-size:14px;font-weight:600;color:var(--ink);text-shadow:0 1px 3px #000;min-height:18px}
 .tb{pointer-events:auto;border-radius:50%;border:2px solid #00000080;display:grid;place-items:center;text-transform:uppercase;font-weight:800;letter-spacing:.06em;touch-action:none}
@@ -211,6 +219,7 @@ h2.code{font-family:var(--mono);font-size:44px;letter-spacing:.18em;color:var(--
       <div class="chip"><span class="lbl" id="c4l">Graves</span><b id="c4v">0 open</b></div>
     </div>
     <div id="obj"></div>
+    <div id="inv" aria-label="Backpack"></div>
     <button id="bView" type="button">3rd person</button>
     <button id="bGfx" type="button">Graphics: High</button>
     <div id="tag" hidden></div>
@@ -261,7 +270,7 @@ function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Ma
 
 // ---------- save ----------
 const SAVE_KEY = 'graveshift.save.v1';
-const freshSave = () => ({ cash: 0, nights: 0, best: 0, up: { shovel: 0, bag: 0, shoes: 0, lantern: 0, scanner: 0 }, gcash: 0, gup: { flashlight: 0, boots: 0, bells: 0, flares: 0, gloves: 0 } });
+const freshSave = () => ({ cash: 0, nights: 0, round: 0, best: 0, up: { shovel: 0, bag: 0, shoes: 0, lantern: 0, scanner: 0 }, gcash: 0, gup: { flashlight: 0, boots: 0, bells: 0, flares: 0, gloves: 0 } });
 let save = freshSave();
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = { ...freshSave(), ...s, up: { ...freshSave().up, ...(s.up || {}) }, gup: { ...freshSave().gup, ...(s.gup || {}) } }; } catch (e) {}
 const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} };
@@ -647,6 +656,7 @@ function genNight() {
     items: [mk(ITEM.jewels), rollItem(3, 4), rollItem(3, 3)],
   };
   ALL = BIG.concat(graves.map(g => { const w = 24 + g.q * 4; return { x: g.x - w / 2, y: g.y - 44, w, h: 22 }; }));
+  WP = WP.map(([x, y]) => freePt(x, y));   // no patrol point inside a headstone
   if (gfx) gfx.buildGraves();
 }
 function chooseTheme() { THEME = THEMES.find(t => t.id === save.nextTheme) || THEMES[0]; }
@@ -711,16 +721,18 @@ function seesPoint(k, x, y, range) {
   if (d > range || Math.abs(angDiff(Math.atan2(dy, dx), k.dir + k.look)) > 0.55) return false;
   return los(k.x, k.y, x, y);
 }
+// move a target point out of headstones, walls and trees so a guard can actually stand on it
+function freePt(x, y) { const e = { x: clamp(x, BOUND.x0, BOUND.x1), y: clamp(y, BOUND.y0, BOUND.y1) }; resolve(e, 16, ALL); resolve(e, 16, ALL); return [e.x, e.y]; }
 function investigate(k, x, y, spread = 30, quiet = false) {
   if (k.state === 'chase' || isHuman(k)) return;
   if (!quiet && k.state === 'patrol') sfx('huh', k.x, k.y, 'r');
-  k.state = 'investigate'; k.tx = clamp(x + rand(-spread, spread), BOUND.x0, BOUND.x1); k.ty = clamp(y + rand(-spread, spread), BOUND.y0, BOUND.y1); k.pts = [];
+  k.state = 'investigate'; [k.tx, k.ty] = freePt(x + rand(-spread, spread), y + rand(-spread, spread)); k.pts = [];
 }
 function startSearch(k, x, y, n, lead) {
   if (isHuman(k)) return;
   k.state = 'search'; k.pts = []; k.hold = 0;
-  if (lead) k.pts.push([clamp(x + lead[0], BOUND.x0, BOUND.x1), clamp(y + lead[1], BOUND.y0, BOUND.y1)]);
-  for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), r = rand(70, 160); k.pts.push([clamp(x + Math.cos(a) * r, BOUND.x0, BOUND.x1), clamp(y + Math.sin(a) * r, BOUND.y0, BOUND.y1)]); }
+  if (lead) k.pts.push(freePt(x + lead[0], y + lead[1]));
+  for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), r = rand(70, 160); k.pts.push(freePt(x + Math.cos(a) * r, y + Math.sin(a) * r)); }
 }
 function makeNoise(x, y, r, show = true) {
   r *= 1 + heat / 150;
@@ -746,7 +758,12 @@ function spawnSecondKeeper() {
 function kMove(k, tx, ty, spd, dt) {
   if (k.burst > 0) spd *= 1.4;
   const dx = tx - k.x, dy = ty - k.y, d = Math.hypot(dx, dy);
-  if (d < 8) return true;
+  if (d < 12) { k.mvKey = null; return true; }
+  // a target he can't get any closer to (behind a headstone, inside a grave): give up on it rather than circling
+  const key = Math.round(tx / 40) + ',' + Math.round(ty / 40);
+  if (k.mvKey !== key) { k.mvKey = key; k.mvBest = d; k.mvT = 0; k.sideDir = 0; }
+  else if (d < k.mvBest - 10) { k.mvBest = d; k.mvT = 0; }
+  else if ((k.mvT += dt) > 2.2) { k.mvKey = null; k.side = 0; return true; }
   let ux = dx / d, uy = dy / d;
   if (k.side > 0) { k.side -= dt; const sx = -uy * k.sideDir, sy = ux * k.sideDir; ux = ux * 0.35 + sx; uy = uy * 0.35 + sy; const l = Math.hypot(ux, uy); ux /= l; uy /= l; }
   const ox = k.x, oy = k.y;
@@ -754,7 +771,8 @@ function kMove(k, tx, ty, spd, dt) {
   resolve(k, 13, ALL);
   for (const o of keepers) if (o !== k) { const ex = k.x - o.x, ey = k.y - o.y, ed = Math.hypot(ex, ey); if (ed < 30 && ed > 0) { k.x = o.x + ex / ed * 30; k.y = o.y + ey / ed * 30; } }
   const moved = Math.hypot(k.x - ox, k.y - oy);
-  if (moved < spd * dt * 0.35 && k.side <= 0) { k.side = 0.55; k.sideDir = Math.random() < 0.5 ? -1 : 1; }
+  // blocked: step round it, and keep going round the same way for this target instead of flip-flopping
+  if (moved < spd * dt * 0.35 && k.side <= 0) { k.side = 0.7; if (!k.sideDir) k.sideDir = Math.random() < 0.5 ? -1 : 1; }
   k.walk += moved;
   const want = Math.atan2(k.y - oy, k.x - ox);
   if (moved > 0.01) k.dir += angDiff(want, k.dir) * Math.min(1, dt * 7);
@@ -817,7 +835,7 @@ function updateKeeper(k, dt) {
     if (!k.carry.length) { k.state = 'patrol'; k.wp = nearestWp(k); }
     else kMove(k, l.x, l.y, (78 + 30 * hf) * sp * 0.9, dt);
   } else if (k.state === 'patrol' && k.post && vault >= 1 && vault < 3 && !keyLocked) {
-    if (!k.postPt || kMove(k, k.postPt[0], k.postPt[1], (52 + 30 * hf) * sp, dt)) { const c = cryptFront(); k.postPt = [clamp(c.x + rand(-170, 170), BOUND.x0, BOUND.x1), clamp(c.y + rand(-10, 140), BOUND.y0, BOUND.y1)]; }
+    if (!k.postPt || kMove(k, k.postPt[0], k.postPt[1], (52 + 30 * hf) * sp, dt)) { const c = cryptFront(); k.postPt = freePt(c.x + rand(-170, 170), c.y + rand(-10, 140)); }
   } else if (k.state === 'patrol') {
     const [x, y] = WP[k.wp % WP.length];
     if (kMove(k, x, y, (52 + 30 * hf) * sp, dt)) {
@@ -1767,8 +1785,7 @@ function throwItem() {
   if (!bag.length) { SFX.nope(); floatLocal('Nothing to throw', '#e8675e'); return; }
   if (netAct('throw', { f: Math.round(P.face * 100) / 100 })) return;
   // throw the cheapest thing, but never the crypt key or the jewels if anything else will do
-  const pool = bag.filter(b => b.id !== 'key' && b.id !== 'jewels'), from = pool.length ? pool : bag;
-  let it = from[0]; for (const b of from) if (b.v < it.v) it = b;
+  const it = nextThrow();
   bag.splice(bag.indexOf(it), 1);
   const a = P.face, sp = 235;
   pickups.push({ it, x: P.x + Math.cos(a) * 14, y: P.y + Math.sin(a) * 14, z: 1.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 5.4, landed: false, armed: false, warned: false, delay: 0, thrown: true });
@@ -1814,6 +1831,24 @@ function itemRow(it, btn) {
       <div class="meta"><span class="rar" style="color:${r.c}">${r.n}</span><span class="val">${money(it.v)}</span>
       <span class="pips">${'<i></i>'.repeat(it.s)}</span><span>${it.s} slot${it.s > 1 ? 's' : ''}</span></div>
       <div class="ds">${esc(it.d)}</div></div>${btn}</div>`;
+}
+// little colored-squares strip along the bottom; junk shows white, the next thing Throw will toss gets an outline
+const INV_C = { junk: '#ffffff', common: '#a3967a' };
+let invSig = '';
+function nextThrow() {
+  const pool = bag.filter(b => b.id !== 'key' && b.id !== 'jewels'), from = pool.length ? pool : bag;
+  let it = from[0]; for (const b of from) if (b.v < it.v) it = b; return it;
+}
+function drawInv() {
+  const el = $('inv'), robber = !isGuard() && mode === 'play';
+  const nx = robber && bag.length ? nextThrow() : null, cap = robber ? bagCap() : 0;
+  const sig = robber ? cap + '|' + bag.map(i => i.uid + (i === nx ? '*' : '')).join(',') : '';
+  if (sig === invSig) return; invSig = sig;
+  if (!robber) { el.innerHTML = ''; return; }
+  let h = '', used = 0;
+  for (const i of bag) { const w = i.s * 18 + (i.s - 1) * 3; used += i.s; h += `<i class="it${i === nx ? ' nx' : ''}" style="width:${w}px;background:${INV_C[i.r] || RAR[i.r].c}" title="${esc(i.name)}"></i>`; }
+  for (; used < cap; used++) h += '<i style="width:18px"></i>';
+  el.innerHTML = h;
 }
 function openLoot() {
   cur = null;
@@ -1866,8 +1901,12 @@ function endRun(reason) {
   $('hud').classList.add('ending');
   banner(robberWon ? (isGuard() ? 'The robber got away' : 'You got away with it!') : reason === 'caught' ? (isGuard() ? 'Got him!' : 'Caught!') : 'Dawn breaks', youWon ? '#d9b35c' : '#d0583f');
   bannerT = 2.4;
-  save.nights = (save.nights || 0) + 1; save.lastTheme = THEME.id; save.nextTheme = nextThemeId();
-  lastResult = { reason, youWon, paid: false, wages: isGuard() ? { base: 100, locked: Math.round(locked * 0.5), win: youWon ? 300 : 0 } : null };
+  // the robber's run only carries on while he gets away: caught or out of time, and his cash and upgrades are gone
+  const runOver = !isGuard() && !robberWon, wasRound = (save.round || 0) + 1;
+  save.nights = (save.nights || 0) + 1; save.lastTheme = THEME.id;
+  if (!isGuard()) { if (robberWon) save.round = wasRound; else { save.round = 0; save.cash = 0; save.up = { ...freshSave().up }; } }
+  save.nextTheme = nextThemeId();
+  lastResult = { reason, youWon, paid: false, runOver, wasRound, wages: isGuard() ? { base: 100, locked: Math.round(locked * 0.5), win: youWon ? 300 : 0 } : null };
   persist();
   const id = matchId;
   setTimeout(() => { if (id !== matchId) return; $('hud').classList.remove('ending'); showResult(reason, youWon); }, 2300);
@@ -1878,6 +1917,7 @@ function showResult(reason, youWon) {
   show('result', `
     <div><div class="eyebrow">${isGuard() ? 'You played a guard' : 'You played the robber'}</div><h2>${youWon ? 'You win' : 'You lose'}</h2></div>
     <p>${why}</p>
+    ${!isGuard() && lastResult ? (lastResult.runOver ? `<p class="note" style="color:#e8675e">Run over after ${lastResult.wasRound} round${lastResult.wasRound > 1 ? 's' : ''}. Your cash and upgrades are gone. The next run starts fresh at the first graveyard.</p>` : `<p class="note" style="color:#9fd49a">Round ${lastResult.wasRound} survived. Sell your haul and buy upgrades. They carry into the next graveyard, as long as you keep getting away.</p>`) : ''}
     <div class="ledger">
       <div><span>Banked</span><span>${money(banked)} / ${money(TARGET)}</span></div>
       <div><span>Graves opened</span><span>${robbedCount}</span></div>
@@ -1887,11 +1927,11 @@ function showResult(reason, youWon) {
       <div><span>Crypt</span><span>${jewelsBanked ? 'Jewels banked' : vault === 3 ? 'Cracked' : vault === 2 ? 'Opened' : keyLocked ? 'Key locked away' : vault === 1 ? 'Key found' : 'Sealed'}</span></div>
     </div>
     <div class="plist"><b>Robber:</b> ${[...rPerks].map(perkName).join(', ') || 'none'}<br>${keepers.map((k, i) => `<b>${isGuard() && i === 0 ? 'You' : 'Guard ' + (i + 1)}:</b> ${[...(k.perks || [])].map(perkName).join(', ') || 'none'}`).join('<br>')}</div>
-    <div class="row"><button class="btn primary" data-act="${isGuard() ? 'toHut' : 'toFence'}">${isGuard() ? 'Collect your pay' : (bankedItems.length ? 'Sell at the Fence' : 'Visit the Fence')}</button>${NET ? `<button class="btn" data-act="lobby">Back to the room</button>` : `<button class="btn" data-act="swap">Play as ${isGuard() ? 'robber' : 'guard'}</button>`}</div>
+    <div class="row"><button class="btn primary" data-act="${isGuard() ? 'toHut' : 'toFence'}">${isGuard() ? 'Collect your pay' : lastResult && lastResult.runOver ? 'Start a new run' : (bankedItems.length ? 'Sell at the Fence' : 'Visit the Fence')}</button>${NET ? `<button class="btn" data-act="lobby">Back to the room</button>` : `<button class="btn" data-act="swap">Play as ${isGuard() ? 'robber' : 'guard'}</button>`}</div>
     <div class="row links"><button class="link" data-act="title">Title screen</button></div>`);
 }
 ACT.again = () => startMatch(ROLE);
-ACT.toFence = () => enterShop(bankedItems.slice(), lastResult ? lastResult.reason : 'visit', null);
+ACT.toFence = () => enterShop(lastResult && lastResult.runOver ? [] : bankedItems.slice(), lastResult ? lastResult.reason : 'visit', null);
 ACT.toHut = () => openHut();
 ACT.swap = () => openPerks(isGuard() ? 'robber' : 'guard');
 ACT.perksAgain = () => openPerks(ROLE);
@@ -1958,7 +1998,7 @@ const UPS = [
 // the first five nights walk through every graveyard once, then the jobs come at random
 const YARD_ORDER = ['mudge', 'pauper', 'ashcroft', 'hollow', 'grimsby'];
 function nextThemeId() {
-  const n = save.nights || 0;
+  const n = isGuard() ? save.nights || 0 : save.round || 0;
   if (n < YARD_ORDER.length) return YARD_ORDER[n];
   return pick(THEMES.filter(t => t.id !== THEME.id)).id;
 }
@@ -2040,7 +2080,8 @@ function enterShop(sold, reason, saved) {
   persist();
   shopState = { sold, total, before, shown: 0, reason };
   const greet = reason === 'visit' ? pick(['Back to browse? Money first, shovels second.', 'Shop’s open. For you, anyway.', 'Looking to spend? I can help with that.'])
-    : !sold.length ? (reason === 'caught' ? 'Caught, and nothing banked? Rough night, friend.' : 'You came all this way with empty pockets?')
+    : lastResult && lastResult.runOver ? (reason === 'caught' ? 'The guards took the lot, gear and all. Fresh start, friend. Everyone gets one.' : 'Sun caught you out, and the guards cleaned out your stash. Back to square one.')
+    : !sold.length ? 'You came all this way with empty pockets?'
     : reason === 'escaped' ? pick(['Let’s see what the dead gave up tonight.', 'Still smells of earth. I like that.', 'No questions asked. Ever. Put it on the counter.'])
     : reason === 'caught' ? 'Heard the guards grabbed you. Good thing you banked some first.'
     : 'Sunrise beat you, eh? Still, what you banked is yours.';
@@ -2130,6 +2171,7 @@ function updateHud(dt) {
   } else {
     $('c3l').textContent = 'Bag ' + bagUsed() + '/' + bagCap(); $('c3v').textContent = money(bagValue());
     $('c4l').textContent = 'Graves'; $('c4v').textContent = robbedCount + ' open';
+    drawInv();
     const t = modalKind || digging ? null : nearest(); let [lab, pr] = digging ? ['Dig', 'Walk away to stop'] : useLabel(t);
     if (hidden) pr = 'Hidden in the open grave';
     else if (!digging && pickups.some(pk => pk.warned && Math.hypot(P.x - pk.x, P.y - pk.y) < 45)) pr = 'Bag full: tap the Bag box to drop something';
@@ -3464,7 +3506,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '1.4';
+const GS_VERSION = '1.5';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
