@@ -32,6 +32,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -86,7 +88,7 @@ button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 #modal.sheet{background:transparent;place-items:end center;pointer-events:none}
 #modal.sheet .card{pointer-events:auto;max-height:56%}
 #modal.clear{background:#04070d55}
-.card{width:100%;max-width:540px;max-height:100%;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 50px #000a;touch-action:pan-y}
+.card{width:100%;max-width:540px;max-height:100%;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 50px #000a;touch-action:pan-y}
 h2{margin:0;font-family:var(--display);font-weight:400;font-size:30px;line-height:1.05;color:#f3e7c4;text-wrap:balance}
 .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
 .years{font-family:var(--mono);font-size:13px;color:var(--dim);margin-top:4px}
@@ -139,6 +141,12 @@ p{margin:0;line-height:1.45}
 .tag{text-align:center;color:var(--brass);font-weight:600}
 .stats{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:14px;color:var(--dim)}
 .stats b{color:var(--ink);font-weight:500}
+.rules{border:1px solid var(--line);border-radius:10px;padding:0 12px}
+.rules summary{cursor:pointer;padding:11px 0;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:12px;color:var(--ink);list-style:none}
+.rules summary::-webkit-details-marker{display:none}
+.rules summary::after{content:' +';color:var(--brass)}
+.rules[open] summary::after{content:' −'}
+.rules .how{padding-bottom:12px}
 .how{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:5px;color:#cfc7b0;font-size:14px;line-height:1.4}
 .ledger{display:flex;flex-direction:column;gap:4px;font-size:15px}
 .ledger div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dotted var(--line);padding:4px 0}
@@ -2018,18 +2026,18 @@ function openTitle() {
   show('title', `
     <div class="logo">Grave Shift</div>
     <p class="tag">Hunt · 1 robber vs 3 guards</p>
-    <ol class="how">
-      <li><b>Robber:</b> dig graves, grab the loot, and carry it to any exit to bank it. Every graveyard has two or three exits. Bank the target before dawn to win. Get grabbed once and it's over.</li>
-      <li><b>Guards:</b> the yard is nearly pitch black. You only see what your lantern and flashlight light up. Follow noise rings, freshly opened graves and bell traps, and grab the robber once to win. When he is lit up and in reach, your big button turns into Grab and you lunge at him. Miss and you stumble for a moment.</li>
-      <li>The robber can throw junk as a decoy, sprint, and hide by standing still in an open grave. A hiding robber is invisible until a guard searches that grave.</li>
-      <li>Before each match you pick perks: 3 for the robber, 2 for each guard. Some cancel each other out, like Escape Artist and Iron Grip.</li>
-      <li>Guards can fire a flare, set bell traps on graves, and search open graves. They can also pick up loot lying around with the Pick up button (up to three items) and lock it away in the hut or the crypt, where the robber can never get it. Searching takes a quick timing tap: nail it and it is fast, miss and you fumble for a second and a half.</li>
-    </ol>
-    <div class="stats"><span>Night <b>${(save.nights || 0) + 1}</b></span><span>Robber cash <b>${money(save.cash)}</b></span><span>Guard pay <b>${money(save.gcash || 0)}</b></span></div>
-    <p class="note">Offline test: the other three players are bots. After each match the robber sells what he banked to the Fence and the guards collect their pay at the hut. Upgrades you buy carry over, and each night is a new graveyard.</p>
     ${gfx ? '' : '<p class="warn">3D graphics could not start in this browser, so the cemetery will not be visible.</p>'}
     <div class="row"><button class="btn primary" data-act="asRobber">Play as robber</button><button class="btn primary" data-act="asGuard">Play as guard</button></div>
     <div class="row"><button class="btn" data-act="online">Play online with friends</button></div>
+    <div class="stats"><span>Night <b>${(save.nights || 0) + 1}</b></span><span>Robber cash <b>${money(save.cash)}</b></span><span>Guard pay <b>${money(save.gcash || 0)}</b></span></div>
+    <details class="rules"><summary>How to play</summary><ol class="how">
+      <li><b>Robber</b> (third person): dig graves, grab the loot, and carry it to any exit to bank it. Every graveyard has two or three exits. Bank the target before dawn to win. Get grabbed once and it's over.</li>
+      <li><b>Guards</b> (first person): drag the right side of the screen to look around. The yard is nearly pitch black, so you only see what your flashlight lights up. Follow noise rings, freshly opened graves and bell traps. When he is lit up and in reach, your big button turns into Grab and you lunge at him. Miss and you stumble for a moment.</li>
+      <li>The robber can throw junk as a decoy, sprint, and hide by standing still in an open grave. A hiding robber is invisible until a guard searches that grave.</li>
+      <li>Before each match you pick perks: 3 for the robber, 2 for each guard. Some cancel each other out, like Escape Artist and Iron Grip.</li>
+      <li>Guards can fire a flare, set bell traps on graves, and search open graves. They can also pick up loot lying around (up to three items) and lock it away in the hut or the crypt, where the robber can never get it.</li>
+      <li>After a match the robber sells what he banked to the Fence and buys upgrades. They only carry over while he keeps getting away: get caught and the run starts over. Guards collect their pay and buy gear at the hut.</li>
+    </ol></details>
     <div class="row links"><button class="link" data-act="shop">Visit the Fence</button><button class="link" data-act="hut">Visit the hut</button><button class="link" data-act="sound">Sound: ${SFX.on() ? 'On' : 'Off'}</button><button class="link" data-act="music">Music: ${SFX.musicOn() ? 'On' : 'Off'}</button></div>`, 'clear');
 }
 ACT.asRobber = () => openPerks('robber');
@@ -3553,7 +3561,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '2.0';
+const GS_VERSION = '2.1';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
