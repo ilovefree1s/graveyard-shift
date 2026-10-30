@@ -30,6 +30,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -57,9 +59,9 @@ button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 .meter i{display:block;height:100%;width:0;background:var(--moss);transition:width .3s,background .3s}
 #banner{position:absolute;left:16px;right:16px;top:24%;text-align:center;font-family:var(--display);font-size:clamp(30px,8vw,54px);color:var(--brass);text-shadow:0 2px 0 #000,0 0 24px #000;opacity:0;transform:scale(.92);transition:opacity .25s,transform .25s;text-wrap:balance}
 #banner.show{opacity:1;transform:none}
-#hud.ending .ctl,#hud.ending .top,#hud.ending #tag,#hud.ending #bView,#hud.ending #bGfx{display:none}
-#bView,#bGfx{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:calc(env(safe-area-inset-top,0px) + 72px);pointer-events:auto;background:#0a0f1acc;border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);touch-action:none}
-#bGfx{top:calc(env(safe-area-inset-top,0px) + 108px)}
+#hud.ending .ctl,#hud.ending .top,#hud.ending #tag,#hud.ending #bGfx{display:none}
+#bGfx{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:calc(env(safe-area-inset-top,0px) + 72px);pointer-events:auto;background:#0a0f1acc;border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);touch-action:none}
+
 #obj{position:absolute;right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 74px);max-width:min(54%,300px);text-align:right;font-size:12px;font-weight:800;letter-spacing:.02em;color:#ecbc52;text-shadow:0 1px 3px #000,0 0 10px #000;line-height:1.3}
 #hud.ending #obj,#hud.ending #inv{display:none}
 #inv{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 10px);display:flex;gap:3px;padding:4px;background:#0a0f1a99;border:1px solid var(--line);border-radius:7px;pointer-events:none}
@@ -222,7 +224,6 @@ h2.code{font-family:var(--mono);font-size:44px;letter-spacing:.18em;color:var(--
     </div>
     <div id="obj"></div>
     <div id="inv" aria-label="Backpack"></div>
-    <button id="bView" type="button">3rd person</button>
     <button id="bGfx" type="button">Graphics: High</button>
     <div id="tag" hidden></div>
     <div id="banner"></div>
@@ -628,8 +629,9 @@ let heartT = 0, hunchT = 18, stepT = 0, lastHeatLvl = 0, bannerT = 0, digLogMsg 
 const P = { x: CX, y: MH - 110, face: -Math.PI / 2, lantern: false, moving: 0, walk: 0 };
 const newKeeper = (x, y, id = 1) => ({ carry: [], x, y, id, dir: 0, look: 0, state: 'patrol', wp: 0, tx: 0, ty: 0, timer: 0, lost: 0, side: 0, sideDir: 1, lastX: 0, lastY: 0, lvx: 0, lvy: 0, walk: 0, pts: [], hold: 0, scanT: 0 });
 const K = newKeeper(300, 250, 1);
-let keepers = [K], gameT = 0, camYaw = -Math.PI / 2;
-const thirdPerson = () => save.view === 'third';
+let keepers = [K], gameT = 0, camYaw = -Math.PI / 2, camPitch = 0;
+const thirdPerson = () => !isGuard();   // the robber is always seen over the shoulder
+const firstPerson = () => isGuard();    // guards see through their own eyes
 const keeperDist = k => Math.hypot(k.x - P.x, k.y - P.y);
 const nearestKeeper = () => keepers.reduce((b, k) => !b || keeperDist(k) < keeperDist(b) ? k : b, null);
 const anyChasing = () => keepers.some(k => k.state === 'chase');
@@ -678,7 +680,7 @@ function resetMatch() {
   const total = graves.reduce((s, g) => s + g.items.reduce((a, i) => a + i.v, 0), 0);
   TARGET = clamp(Math.round(total * 0.25 / 50) * 50, 800, 3000);
   maus.items[0].v = Math.round(TARGET * 0.45 / 10) * 10; vault = 0; keyLocked = false; jewelsBanked = false;
-  camYaw = isGuard() ? me().dir : P.face;
+  camYaw = isGuard() ? me().dir : P.face; camPitch = 0;
   assignPerks();
   if (gfx) gfx.snapCamera();
 }
@@ -1468,6 +1470,7 @@ function updateBotRobber(dt) {
 // (unless you've just dragged it yourself)
 let stickLen = 0, stickFwd = 0, camDragAt = -1e9;
 function followCam(dt) {
+  if (firstPerson() && mode === 'play') { const t = (keys.KeyL || keys.Period ? 1 : 0) - (keys.KeyJ || keys.Comma ? 1 : 0); camYaw += t * 2.4 * dt; return; }
   if (!thirdPerson() || mode !== 'play' || camDrag.id !== null || performance.now() - camDragAt < 1500) return;
   const c = me(), face = isGuard() ? c.dir : P.face;
   // pushing ahead: swing right in behind; pushing sideways: drift round slowly; backing up: leave it be
@@ -1488,7 +1491,7 @@ function readStick(dt) {
   mx = moveV.x; my = moveV.y;
   let len = Math.hypot(mx, my); if (len > 1) { mx /= len; my /= len; len = 1; }
   stickLen = len; stickFwd = len > 0 ? -my / len : 0;
-  if (thirdPerson() && len > 0) {
+  if (len > 0) {   // the stick is always relative to where the camera looks
     const fx = Math.cos(camYaw), fy = Math.sin(camYaw), fwd = -my;
     const nx = fx * fwd - fy * mx, ny = fy * fwd + fx * mx;
     mx = nx; my = ny;
@@ -1507,8 +1510,9 @@ function localGuardMove(g, dt, mx, my, len) {
     const cs = g.carry.length ? 0.9 : 1;
     const bsp = (g.burst > 0 ? 1.4 : 1) * (1 + 0.05 * kg(g, 'boots'));
     g.x += mx * GUARD_SPEED * cs * bsp * dt; g.y += my * GUARD_SPEED * cs * bsp * dt; resolve(g, 13, ALL);
-    g.walk += Math.hypot(g.x - ox, g.y - oy); g.dir = turnTo(g.dir, Math.atan2(my, mx), Math.min(1, dt * 11));
+    g.walk += Math.hypot(g.x - ox, g.y - oy);
   }
+  if (!(g.lunge > 0)) g.dir = camYaw;   // first person: you face wherever you look
   g.look = 0; g.state = 'patrol';
 }
 // the robber you control, on this device
@@ -2231,14 +2235,11 @@ tap($('bSprint'), sprint);
 tap($('bSmoke'), () => { if (!isGuard()) useSmoke(); hudT = 0; });
 tap($('bDecoy'), () => { if (!isGuard()) useDecoy(); hudT = 0; });
 $('c3').addEventListener('pointerdown', e => { e.stopPropagation(); if (!isGuard()) openBag(); });
-function setViewLabel() { $('bView').textContent = thirdPerson() ? 'Top-down' : '3rd person'; }
-tap($('bView'), () => { save.view = thirdPerson() ? 'top' : 'third'; persist(); setViewLabel(); if (thirdPerson()) camYaw = isGuard() ? me().dir : P.face; if (gfx) gfx.snapCamera(); });
-setViewLabel();
 const hiGfx = () => save.gfx !== 'low';
 function setGfxLabel() { $('bGfx').textContent = 'Graphics: ' + (hiGfx() ? 'High' : 'Low'); }
 tap($('bGfx'), () => { save.gfx = hiGfx() ? 'low' : 'high'; persist(); setGfxLabel(); if (gfx) gfx.applyGfx(); });
 setGfxLabel();
-const camDrag = { id: null, x: 0 };
+const camDrag = { id: null, x: 0, y: 0 };
 cv.addEventListener('pointerdown', e => {
   if (mode === 'shop' && gfx) {
     const id = gfx.shopTap(e.clientX, e.clientY);
@@ -2249,13 +2250,17 @@ cv.addEventListener('pointerdown', e => {
       else ACT.buy(id); }
     return;
   }
-  if (mode === 'play' && !modalKind && thirdPerson() && e.clientX > W * 0.62 && camDrag.id === null) { camDrag.id = e.pointerId; camDrag.x = e.clientX; e.preventDefault(); return; }
+  if (mode === 'play' && !modalKind && e.clientX > W * 0.62 && camDrag.id === null) { camDrag.id = e.pointerId; camDrag.x = e.clientX; camDrag.y = e.clientY; e.preventDefault(); return; }
   if (mode !== 'play' || modalKind || joy.id !== null || e.clientX > W * 0.62) return;
   joy.id = e.pointerId; joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY; joy.vx = joy.vy = 0;
   e.preventDefault();
 });
 window.addEventListener('pointermove', e => {
-  if (e.pointerId === camDrag.id) { camYaw += (e.clientX - camDrag.x) * 0.009; camDrag.x = e.clientX; camDragAt = performance.now(); return; }
+  if (e.pointerId === camDrag.id) {
+    camYaw += (e.clientX - camDrag.x) * (firstPerson() ? 0.007 : 0.009); camDrag.x = e.clientX; camDragAt = performance.now();
+    if (firstPerson()) camPitch = clamp(camPitch - (e.clientY - camDrag.y) * 0.005, -0.55, 0.3);
+    camDrag.y = e.clientY; return;
+  }
   if (e.pointerId !== joy.id) return;
   let dx = e.clientX - joy.ox, dy = e.clientY - joy.oy; const d = Math.hypot(dx, dy), R = 60;
   if (d > R) { dx = dx / d * R; dy = dy / d * R; }
@@ -2400,7 +2405,7 @@ function initGfx() {
   renderer.setClearColor(NIGHT_BG);
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(NIGHT_BG.clone(), 20, 60);
-  const TOP_FOV = 30, TP_FOV = 58;
+  const TOP_FOV = 30, TP_FOV = 58, FP_FOV = 72, EYE = 1.62;
   const camera = new THREE.PerspectiveCamera(TOP_FOV, 1, 0.1, 200);
   const tpPos = new THREE.Vector3(), tpLook = new THREE.Vector3();
   window.__gsCam = camera;
@@ -2855,6 +2860,21 @@ function initGfx() {
   window.__gsVoxels = { robber: robber.userData.voxels, guard1: keeper.userData.voxels, guard2: keeper2.userData.voxels, guard3: keeper3.userData.voxels };
   scene.add(keeper3); keeper3.visible = false;
   const keeperMeshes = [keeper, keeper2, keeper3];
+  // first person: your own forearm and flashlight, fixed to the camera
+  const viewArms = ['kcoat', 'k2coat', 'k3coat'].map(sleeve => {
+    const b = builder();
+    rbox(b, -6, 10, -1, 3, 13, 2, sleeve, 'none'); paintB(b, 2, 10, -1, 3, 13, 2, 'belt');
+    rbox(b, 3, 10, -1, 5, 13, 2, 'skin', 'none'); b.set(4, 13, 0, 'skin');
+    rbox(b, 5, 10, -1, 9, 12, 1, 'ironLight', 'none'); rbox(b, 9, 9, -2, 10, 13, 2, 'iron', 'all'); rbox(b, 9, 10, -1, 10, 12, 1, 'lens', 'none');
+    const mesh = toMesh(meshVox(b.V, { res: CR, skipBottom: false }), false);
+    mesh.position.set(0, -11 / CR, 0); return mesh;
+  });
+  const viewArm = new THREE.Group(), viewLens = new THREE.Object3D();
+  viewArms.forEach(a => viewArm.add(a)); viewLens.position.set(10.2 / CR, 0, 0); viewArm.add(viewLens);
+  viewArm.rotation.set(0, Math.PI / 2 + 0.16, 0.1); viewArm.scale.setScalar(0.3);
+  viewArm.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.renderOrder = 10; } });
+  camera.add(viewArm); scene.add(camera);
+  let fpWalk = 0, fpAmt = 0, fpDip = 0;
   scene.add(robber); scene.add(keeper); scene.add(keeper2); keeper2.visible = false;
 
   // flashlight beam
@@ -3188,9 +3208,26 @@ function initGfx() {
     if (mode === 'shop') { renderShop(dt); return; }
     const playing = mode === 'play' || mode === 'ending';
     // camera
-    const wantFov = playing && thirdPerson() ? TP_FOV : TOP_FOV;
+    const wantFov = playing && firstPerson() ? FP_FOV : playing && thirdPerson() ? TP_FOV : TOP_FOV;
     if (camera.fov !== wantFov) { camera.fov = wantFov; camera.updateProjectionMatrix(); }
-    if (playing && thirdPerson()) {
+    viewArm.visible = playing && firstPerson();
+    if (viewArm.visible) viewArms.forEach((v, i) => { v.visible = i === MYSLOT; });
+    if (playing && firstPerson()) {
+      // through the guard's eyes, with a little walking bob
+      const g = me(), px = m(g.x), pz = m(g.y), yaw = g.lunge > 0 ? g.dir : camYaw;
+      const bobA = g.walk * 0.07, moving = g.walk !== fpWalk; fpWalk = g.walk; fpAmt += ((moving ? 1 : 0) - fpAmt) * Math.min(1, dt * 8);
+      const dip = g.lunge > 0 ? -0.35 : g.stumble > 0 ? -0.25 : g.gsearch ? -0.5 : 0;
+      fpDip += (dip - fpDip) * Math.min(1, dt * 8);
+      camera.position.set(px, EYE + Math.abs(Math.sin(bobA)) * 0.05 * fpAmt + fpDip * 0.6, pz);
+      const pitch = camPitch + fpDip, cp = Math.cos(pitch);
+      tpLook.set(px + Math.cos(yaw) * cp, camera.position.y + Math.sin(pitch), pz + Math.sin(yaw) * cp);
+      camera.lookAt(tpLook);
+      { // keep the flashlight the same size and spot on screen whatever the shape of the screen
+        const sc = 0.3 * clamp(camera.aspect / 1.1, 0.5, 1), depth = 0.14 + 0.85 * sc, th = Math.tan(THREE.MathUtils.degToRad(FP_FOV / 2));
+        const hw = depth * th * camera.aspect, hh = depth * th; viewArm.scale.setScalar(sc);
+        viewArm.position.set((camera.aspect < 1 ? 0.62 : 0.4) * hw + 0.14 * sc + Math.sin(bobA) * 0.02 * hw * fpAmt, -0.5 * hh + Math.abs(Math.cos(bobA)) * 0.03 * hh * fpAmt, -0.14); }
+      camT.set(px, 0, pz); tpSnap = true;
+    } else if (playing && thirdPerson()) {
       // over-the-shoulder: behind the robber, a little above head height
       const c0 = me(), px = m(c0.x), pz = m(c0.y), fx = Math.cos(camYaw), fz = Math.sin(camYaw);
       const tall = camera.aspect < 1 ? 1.35 : 1, back = (digging ? 4.8 : 5.6) * tall, up = (digging ? 3.6 : 3.0) * tall;
@@ -3213,7 +3250,8 @@ function initGfx() {
     }
     if (window.__camOv) { const o = window.__camOv; camera.position.set(o.p[0], o.p[1], o.p[2]); camera.lookAt(o.t[0], o.t[1], o.t[2]); }
     const cd = camera.position.distanceTo(playing ? camT : v3.set(CX / U, 0, MH / U / 2));
-    if (playing && thirdPerson()) { scene.fog.near = 3 * THEME.fog; scene.fog.far = 26 * THEME.fog; }
+    if (playing && firstPerson()) { scene.fog.near = 1.5 * THEME.fog; scene.fog.far = 22 * THEME.fog; }
+    else if (playing && thirdPerson()) { scene.fog.near = 3 * THEME.fog; scene.fog.far = 26 * THEME.fog; }
     else { scene.fog.near = cd - 4 * THEME.fog; scene.fog.far = cd + (playing ? 20 : 24) * THEME.fog; }
     // dawn
     const dawn = mode === 'play' ? clamp(1 - timeLeft / 90, 0, 1) : 0;
@@ -3246,9 +3284,10 @@ function initGfx() {
     for (let i = 0; i < 3; i++) {
       const k = keepers[i], km = keeperMeshes[i], sl = spots[i], bm = beams[i];
       const on = !!k && (i === 0 || mode === 'play' || mode === 'ending');
-      km.visible = bm.visible = on;
+      km.visible = bm.visible = on; const mine = on && playing && firstPerson() && k === me();
+      if (mine) km.visible = false;
       if (!on) { sl.intensity = 0; gLights[i].intensity = 0; continue; }
-      sl.intensity = 3.2;
+      sl.intensity = mine ? 2.1 : 3.2;   // your own beam starts right at your eyes, so it's toned down to keep close things from glaring
       gLights[i].intensity = lit0 ? 0 : 1.3; gLights[i].position.set(m(k.x), 1.5, m(k.y));
       const kbob = Math.abs(Math.sin(k.walk * 0.07)) * 0.06, dir = k.dir + k.look;
       animRig(km, k.walk * 0.07, k.walk !== km.parts.lw, dt); km.parts.lw = k.walk;
@@ -3265,7 +3304,8 @@ function initGfx() {
       const ang = Math.min(1, 0.5 * kCone(k)); sl.angle = ang;
       // the beam starts at the flashlight lens in his hand
       km.updateMatrixWorld(true);
-      km.localToWorld(sl.position.copy(LENS));
+      if (mine) { camera.updateMatrixWorld(true); viewArm.updateMatrixWorld(true); viewLens.getWorldPosition(sl.position); }
+      else km.localToWorld(sl.position.copy(LENS));
       sl.target.position.set(sl.position.x + Math.cos(dir) * L, 0, sl.position.z + Math.sin(dir) * L);
       const hot = k.state === 'chase' && mode === 'play';
       sl.distance = L * 1.5; sl.color.set(hot ? '#ffd0c0' : '#eef3ff');
@@ -3282,7 +3322,7 @@ function initGfx() {
         sp.position.set(m(sm.x) + Math.cos(a) * rr, 0.5 + (n % 4) * 0.45, m(sm.y) + Math.sin(a) * rr);
         sp.material.opacity = 0.7 * Math.min(1, sm.t / 1.2) * Math.min(1, (6 - sm.t) * 3 + 0.3);
       }); }
-    youRing.visible = playing && isGuard();
+    youRing.visible = false;
     if (youRing.visible) { youRing.position.set(m(me().x), 0.05, m(me().y)); youRing.material.opacity = 0.45 + 0.2 * Math.sin(T * 4); }
     // graves
     for (const g of graves) {
@@ -3491,7 +3531,7 @@ function initGfx() {
         const hx = 100, hy = H - 110;
         ctx.strokeStyle = 'rgba(235,228,208,0.22)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, 50, 0, 7); ctx.stroke();
         ctx.fillStyle = 'rgba(235,228,208,0.4)'; ctx.font = '600 11px Karla, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('DRAG TO MOVE', hx, hy + 4);
-        if (thirdPerson()) { ctx.fillText('DRAG HERE TO TURN', W - 90, H * 0.42); }
+        ctx.fillText(firstPerson() ? 'DRAG HERE TO LOOK' : 'DRAG HERE TO TURN', W - 90, H * 0.42);
       }
     }
   }
@@ -3513,7 +3553,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '1.6';
+const GS_VERSION = '2.0';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
