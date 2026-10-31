@@ -36,6 +36,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -90,6 +92,7 @@ body.pc .tb.big{width:84px;height:84px;font-size:14px}
 body.pc .tb.small{width:56px;height:56px;font-size:10px}
 #xhair{position:fixed;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#f4efdc;box-shadow:0 0 0 1.5px #0009;pointer-events:none;z-index:5}
 #lockHint{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);padding:10px 16px;border-radius:10px;background:#0b0d14d0;border:1px solid #ffffff30;color:#efe8d2;font:700 14px Karla,sans-serif;text-align:center;pointer-events:none;z-index:5;line-height:1.5}
+#cv.look{cursor:grab}#cv.look.dragging{cursor:grabbing}
 #lockHint small{display:block;font-weight:500;opacity:.75;font-size:12px}
 .tb.small.on{background:#5a4618;color:#ffd98a;border-color:var(--brass)}
 
@@ -2043,7 +2046,7 @@ function openTitle() {
     <div class="row"><button class="btn" data-act="online">Play online with friends</button></div>
     <div class="stats"><span>Night <b>${(save.nights || 0) + 1}</b></span><span>Robber cash <b>${money(save.cash)}</b></span><span>Guard pay <b>${money(save.gcash || 0)}</b></span></div>
     <details class="rules"><summary>How to play</summary><ol class="how">
-      <li><b>On a computer</b>: click the game to take over the mouse, then move the mouse to look. WASD to move, E or left click to use, Q or right click to throw (guards: set a trap), Shift to sprint, F for the lamp, Tab or B for the bag, X smoke, C decoy, scroll wheel to zoom the robber camera. Esc gives you the mouse back.</li>
+      <li><b>On a computer</b>: click and drag with the mouse to look around. WASD to move, E or left click to use, Q or right click to throw (guards: set a trap), Shift to sprint, F for the lamp, Tab or B for the bag, X smoke, C decoy, scroll wheel to zoom the robber camera.</li>
       <li><b>Robber</b> (third person): dig graves, grab the loot, and carry it to any exit to bank it. Every graveyard has two or three exits. Bank the target before dawn to win. Get grabbed once and it's over.</li>
       <li><b>Guards</b> (first person): drag the right side of the screen to look around. The yard is nearly pitch black, so you only see what your flashlight lights up. Follow noise rings, freshly opened graves and bell traps. When he is lit up and in reach, your big button turns into Grab and you lunge at him. Miss and you stumble for a moment.</li>
       <li>The robber can throw junk as a decoy, sprint, and hide by standing still in an open grave. A hiding robber is invisible until a guard searches that grave.</li>
@@ -2312,15 +2315,12 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 // ---------- PC: mouse look ----------
-// on a computer the mouse steers the camera (pointer lock when the page allows it,
-// otherwise hold the right button to look); left click = Use, right click = Throw/Trap
-var pcMode = matchMedia('(hover:hover) and (pointer:fine)').matches, lockOk = true, rmbLook = false, MOUSE_SENS = 0.0024;
-function ptrLocked() { return document.pointerLockElement === cv; }
-function mouseLook() { return pcMode && (ptrLocked() || rmbLook); }
-function lockMouse() { if (!pcMode || !lockOk || ptrLocked() || !cv.requestPointerLock) return; try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => { lockOk = false; }); } catch (e) { lockOk = false; } }
-function unlockMouse() { if (ptrLocked()) try { document.exitPointerLock(); } catch (e) {} }
-document.addEventListener('pointerlockerror', () => { lockOk = false; hudT = 0; });
-document.addEventListener('pointerlockchange', () => { hudT = 0; });
+// on a computer the cursor stays on screen: hold the left button and drag to turn the camera,
+// a quick click (no drag) = Use, right click = Throw/Trap
+var pcMode = matchMedia('(hover:hover) and (pointer:fine)').matches, MOUSE_SENS = 0.006, mDrag = null;
+function mouseLook() { return pcMode && !!mDrag && mDrag.moved > 4; }
+function lockMouse() {}
+function unlockMouse() { mDrag = null; cv.classList.remove('dragging'); }
 function setPc(v) { if (pcMode === v) return; pcMode = v; document.body.classList.toggle('pc', v); if (!v) unlockMouse(); hudT = 0; }
 document.body.classList.toggle('pc', pcMode);
 window.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') setPc(false); else if (e.pointerType === 'mouse') setPc(true); }, true);
@@ -2328,17 +2328,22 @@ window.addEventListener('keydown', e => { if (/^Key[WASD]$/.test(e.code)) setPc(
 cv.addEventListener('mousedown', e => {
   if (!pcMode || mode !== 'play' || modalKind) return;
   e.preventDefault();
-  if (lockOk && !ptrLocked()) { lockMouse(); return; }   // the first click just grabs the mouse
-  if (e.button === 0) onUse();
-  else if (e.button === 2) { if (lockOk) { if (isGuard()) setTrap(); else if (stunT <= 0) throwItem(); } else rmbLook = true; }
+  if (e.button === 0) { mDrag = { x: e.clientX, y: e.clientY, moved: 0, t: performance.now() }; cv.classList.add('dragging'); }
+  else if (e.button === 2) { if (isGuard()) setTrap(); else if (stunT <= 0) throwItem(); }
 });
-window.addEventListener('mouseup', e => { if (e.button === 2) rmbLook = false; });
+window.addEventListener('mouseup', e => {
+  if (e.button !== 0 || !mDrag) return;
+  const d = mDrag; unlockMouse();
+  if (d.moved <= 4 && performance.now() - d.t < 350 && mode === 'play' && !modalKind) onUse();
+});
 cv.addEventListener('contextmenu', e => { if (pcMode) e.preventDefault(); });
 window.addEventListener('mousemove', e => {
-  if (!mouseLook() || mode !== 'play' || modalKind) return;
-  const dx = Math.max(-200, Math.min(200, e.movementX || 0)), dy = Math.max(-200, Math.min(200, e.movementY || 0));
+  if (!mDrag || mode !== 'play' || modalKind) return;
+  const dx = e.clientX - mDrag.x, dy = e.clientY - mDrag.y; mDrag.x = e.clientX; mDrag.y = e.clientY;
+  mDrag.moved += Math.abs(dx) + Math.abs(dy);
+  if (mDrag.moved <= 4) return;
   camYaw += dx * MOUSE_SENS; camDragAt = performance.now();
-  if (firstPerson()) camPitch = clamp(camPitch - dy * MOUSE_SENS, -0.55, 0.3);
+  if (firstPerson()) camPitch = clamp(camPitch - dy * MOUSE_SENS * 0.8, -0.55, 0.3);
 });
 cv.addEventListener('wheel', e => { if (mode === 'play' && thirdPerson()) { tpZoom = clamp(tpZoom * (e.deltaY > 0 ? 1.08 : 1 / 1.08), 0.6, 1.6); e.preventDefault(); } }, { passive: false });
 function pcWords(t) {
@@ -2349,14 +2354,14 @@ function pcWords(t) {
 }
 function updatePcHud() {
   const play = mode === 'play' && !modalKind;
-  $('xhair').hidden = !(pcMode && play && firstPerson() && ptrLocked());
-  const lh = $('lockHint'), need = pcMode && play && lockOk && !ptrLocked();
+  $('xhair').hidden = !(pcMode && play && firstPerson());
+  cv.classList.toggle('look', pcMode && play);
+  const lh = $('lockHint'), need = pcMode && play && gameT < 9;
   lh.hidden = !need;
-  if (need) { const h = isGuard() ? 'Click to look around with the mouse' : 'Click to steer the camera with the mouse';
-    const hh = h + '<small>WASD move \u00b7 E or click use \u00b7 Q or right-click ' + (isGuard() ? 'trap' : 'throw') + ' \u00b7 Shift sprint \u00b7 Esc frees the mouse</small>';
-    if (lh.innerHTML !== hh) lh.innerHTML = hh; }
-  if (pcMode && !lockOk && play && gameT < 10) { lh.hidden = false; const t = 'Hold the right mouse button to look around<small>WASD move \u00b7 E or click use \u00b7 Q ' + (isGuard() ? 'trap' : 'throw') + ' \u00b7 Shift sprint</small>'; if (lh.innerHTML !== t) lh.innerHTML = t; }
+  if (need) { const h = 'Click and drag with the mouse to look around<small>WASD move \u00b7 E or click use \u00b7 Q or right-click ' + (isGuard() ? 'trap' : 'throw') + ' \u00b7 Shift sprint \u00b7 F lamp \u00b7 Tab bag</small>';
+    if (lh.innerHTML !== h) lh.innerHTML = h; }
 }
+
 
 // =====================================================================
 // 3D: Moonlit Miniature voxel renderer (6 blocks per meter)
@@ -3304,11 +3309,11 @@ function initGfx() {
     } else if (playing && thirdPerson()) {
       // over-the-shoulder: behind the robber, a little above head height
       const c0 = me(), px = m(c0.x), pz = m(c0.y), fx = Math.cos(camYaw), fz = Math.sin(camYaw);
-      const tall = (camera.aspect < 1 ? 1.35 : 1) * tpZoom, back = (digging ? 4.8 : 5.6) * tall, up = (digging ? 3.6 : 3.0) * tall;
+      const tall = (camera.aspect < 1 ? 1.35 : 1) * tpZoom, back = (digging ? 4.8 : 5.4) * tall, up = (digging ? 4.4 : 4.3) * tall;
       const cx = clamp(px - fx * back, -4, 39), cz = clamp(pz - fz * back, -4, 40);
       const k = tpSnap ? 1 : Math.min(1, dt * 7); tpSnap = false;
       tpPos.x += (cx - tpPos.x) * k; tpPos.y += (up - tpPos.y) * k; tpPos.z += (cz - tpPos.z) * k;
-      tpLook.set(px + fx * 3, 0.9, pz + fz * 3);
+      tpLook.set(px + fx * 3.2, 0.6, pz + fz * 3.2);
       camera.position.copy(tpPos); camera.lookAt(tpLook);
       camT.set(px, 0, pz);
     } else if (mode === 'play' || mode === 'ending') {
@@ -3628,7 +3633,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '2.2';
+const GS_VERSION = '2.3';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
