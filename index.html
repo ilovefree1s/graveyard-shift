@@ -34,6 +34,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Karla:wght@400;600;800&family=DM+Mono:wght@500&display=swap">
 <style>
 /* Layout: full-bleed 3D night scene; thin ledger strip on top, thumb controls in the bottom corners, dark cards for menus */
 :root{
@@ -82,6 +84,13 @@ button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 .side{display:flex;flex-direction:column;gap:12px}
 .tb.small{width:66px;height:66px;background:#1f2533e6;color:var(--ink);font-size:11px;border-color:var(--line)}
 .tb.small:disabled{opacity:.4}
+body.pc .tb[data-k]{position:relative}
+body.pc .tb[data-k]::after{content:attr(data-k);position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;padding:0 4px;box-sizing:border-box;border-radius:5px;background:#e9e2cc;color:#1b150a;font:800 11px/20px Karla,sans-serif;letter-spacing:0;text-transform:none;box-shadow:0 2px 0 #0008}
+body.pc .tb.big{width:84px;height:84px;font-size:14px}
+body.pc .tb.small{width:56px;height:56px;font-size:10px}
+#xhair{position:fixed;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#f4efdc;box-shadow:0 0 0 1.5px #0009;pointer-events:none;z-index:5}
+#lockHint{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);padding:10px 16px;border-radius:10px;background:#0b0d14d0;border:1px solid #ffffff30;color:#efe8d2;font:700 14px Karla,sans-serif;text-align:center;pointer-events:none;z-index:5;line-height:1.5}
+#lockHint small{display:block;font-weight:500;opacity:.75;font-size:12px}
 .tb.small.on{background:#5a4618;color:#ffd98a;border-color:var(--brass)}
 
 #modal{position:absolute;inset:0;display:grid;place-items:center;background:#04070dc4;padding:calc(env(safe-area-inset-top,0px) + 16px) 16px calc(env(safe-area-inset-bottom,0px) + 16px)}
@@ -234,18 +243,20 @@ h2.code{font-family:var(--mono);font-size:44px;letter-spacing:.18em;color:var(--
     <div id="inv" aria-label="Backpack"></div>
     <button id="bGfx" type="button">Graphics: High</button>
     <div id="tag" hidden></div>
+    <div id="xhair" hidden></div>
+    <div id="lockHint" hidden></div>
     <div id="banner"></div>
     <div class="ctl">
       <div id="prompt"></div>
       <div class="side">
-        <button class="tb small" id="bSmoke" aria-label="Smoke bomb" hidden>Smoke</button>
-        <button class="tb small" id="bDecoy" aria-label="Throw decoy bell" hidden>Decoy</button>
-        <button class="tb small" id="bThrow" aria-label="Throw your cheapest item">Throw</button>
-        <button class="tb small" id="bLantern" aria-label="Toggle lantern">Lamp</button>
-        <button class="tb small" id="bSprint" aria-label="Sprint">Sprint</button>
-        <button class="tb small" id="bBag" aria-label="Open backpack" hidden>Bag</button>
+        <button class="tb small" id="bSmoke" data-k="X" aria-label="Smoke bomb" hidden>Smoke</button>
+        <button class="tb small" id="bDecoy" data-k="C" aria-label="Throw decoy bell" hidden>Decoy</button>
+        <button class="tb small" id="bThrow" data-k="Q" aria-label="Throw your cheapest item">Throw</button>
+        <button class="tb small" id="bLantern" data-k="F" aria-label="Toggle lantern">Lamp</button>
+        <button class="tb small" id="bSprint" data-k="Shift" aria-label="Sprint">Sprint</button>
+        <button class="tb small" id="bBag" data-k="B" aria-label="Open backpack" hidden>Bag</button>
       </div>
-      <button class="tb big" id="bUse" disabled>Use</button>
+      <button class="tb big" id="bUse" data-k="E" disabled>Use</button>
     </div>
   </div>
   <div id="say" hidden><span class="sn">The Fence</span><span class="st"></span></div>
@@ -1476,10 +1487,10 @@ function updateBotRobber(dt) {
 
 // third person: the camera swings round behind the way you're facing whenever you move
 // (unless you've just dragged it yourself)
-let stickLen = 0, stickFwd = 0, camDragAt = -1e9;
+let stickLen = 0, stickFwd = 0, camDragAt = -1e9, tpZoom = 1;
 function followCam(dt) {
   if (firstPerson() && mode === 'play') { const t = (keys.KeyL || keys.Period ? 1 : 0) - (keys.KeyJ || keys.Comma ? 1 : 0); camYaw += t * 2.4 * dt; return; }
-  if (!thirdPerson() || mode !== 'play' || camDrag.id !== null || performance.now() - camDragAt < 1500) return;
+  if (!thirdPerson() || mode !== 'play' || camDrag.id !== null || mouseLook() || performance.now() - camDragAt < 1500) return;
   const c = me(), face = isGuard() ? c.dir : P.face;
   // pushing ahead: swing right in behind; pushing sideways: drift round slowly; backing up: leave it be
   const rate = stickFwd > 0.3 ? 2.8 : stickFwd > -0.3 ? 0.9 : 0;
@@ -1627,11 +1638,11 @@ function onUse() {
 // ---------- modal plumbing ----------
 const modal = $('modal'), card = $('card');
 function show(kind, html, look = '') {
-  modalKind = kind; card.innerHTML = html; modal.hidden = false;
+  modalKind = kind; card.innerHTML = html; modal.hidden = false; unlockMouse();
   modal.className = look; card.scrollTop = 0;
   joy.id = null; joy.vx = joy.vy = 0; moveV.x = moveV.y = 0;
 }
-function closeModal() { modal.hidden = true; modalKind = null; card.innerHTML = ''; }
+function closeModal() { modal.hidden = true; modalKind = null; card.innerHTML = ''; if (pcMode && mode === 'play') lockMouse(); }
 const ACT = {};
 card.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b && !b.disabled && ACT[b.dataset.act]) { SFX.init(); SFX.click(); ACT[b.dataset.act](b.dataset.arg, b); } });
 
@@ -1863,6 +1874,7 @@ function drawInv() {
   const nx = robber && bag.length ? nextThrow() : null, cap = robber ? bagCap() : 0;
   const sig = robber ? cap + '|' + bag.map(i => i.uid + (i === nx ? '*' : '')).join(',') : '';
   if (sig === invSig) return; invSig = sig;
+  el.hidden = !robber;
   if (!robber) { el.innerHTML = ''; return; }
   let h = '', used = 0;
   for (const i of bag) { const w = i.s * 18 + (i.s - 1) * 3; used += i.s; h += `<i class="it${i === nx ? ' nx' : ''}" style="width:${w}px;background:${INV_C[i.r] || RAR[i.r].c}" title="${esc(i.name)}"></i>`; }
@@ -1914,7 +1926,7 @@ const fmtT = t => Math.floor(Math.max(0, t) / 60) + ':' + String(Math.floor(Math
 function endRun(reason) {
   if (mode !== 'play') return;
   if (NET && NET.host) { NET.out.push({ k: 'end', reason, bi: bankedItems.map(itemOut) }); sendNet('snap', makeSnap()); }
-  closeModal(); mode = 'ending'; digging = null; floats = [];
+  closeModal(); mode = 'ending'; digging = null; floats = []; unlockMouse();
   const robberWon = reason === 'escaped', youWon = isGuard() ? !robberWon : robberWon;
   if (youWon) SFX.win(); else SFX.caught();
   $('hud').classList.add('ending');
@@ -2031,6 +2043,7 @@ function openTitle() {
     <div class="row"><button class="btn" data-act="online">Play online with friends</button></div>
     <div class="stats"><span>Night <b>${(save.nights || 0) + 1}</b></span><span>Robber cash <b>${money(save.cash)}</b></span><span>Guard pay <b>${money(save.gcash || 0)}</b></span></div>
     <details class="rules"><summary>How to play</summary><ol class="how">
+      <li><b>On a computer</b>: click the game to take over the mouse, then move the mouse to look. WASD to move, E or left click to use, Q or right click to throw (guards: set a trap), Shift to sprint, F for the lamp, Tab or B for the bag, X smoke, C decoy, scroll wheel to zoom the robber camera. Esc gives you the mouse back.</li>
       <li><b>Robber</b> (third person): dig graves, grab the loot, and carry it to any exit to bank it. Every graveyard has two or three exits. Bank the target before dawn to win. Get grabbed once and it's over.</li>
       <li><b>Guards</b> (first person): drag the right side of the screen to look around. The yard is nearly pitch black, so you only see what your flashlight lights up. Follow noise rings, freshly opened graves and bell traps. When he is lit up and in reach, your big button turns into Grab and you lunge at him. Miss and you stumble for a moment.</li>
       <li>The robber can throw junk as a decoy, sprint, and hide by standing still in an open grave. A hiding robber is invisible until a guard searches that grave.</li>
@@ -2171,12 +2184,17 @@ function banner(text, color = '#d9b35c') { bannerEl.textContent = text; bannerEl
 let hudT = 0;
 function updateHud(dt) {
   hudT -= dt; if (hudT > 0) return; hudT = 0.1;
+  updatePcHud();
+  try { updateHud0(); } finally { if (pcMode) { const p = $('prompt'), t = pcWords(p.textContent); if (t !== p.textContent) p.textContent = t; } }
+}
+function updateHud0() {
   const tt = $('tTime'); tt.textContent = fmtT(timeLeft); tt.style.color = timeLeft < 60 ? '#d0583f' : '';
   $('tBank').textContent = money(banked); $('tBankL').textContent = 'of ' + money(TARGET);
   $('bankFill').style.width = Math.min(100, 100 * banked / TARGET) + '%';
   $('obj').textContent = objective();
   const bu = $('bUse'), bt = $('bThrow');
   if (isGuard()) {
+    drawInv();
     $('c3l').textContent = 'Locked'; $('c3v').textContent = money(locked);
     $('c4l').textContent = 'Traps'; $('c4v').textContent = me().traps + ' left';
     const k0 = me(), grab = canGrab(), pu = !grab && !gs && pickupNear(k0), sg = !grab && !pu && (gs || searchable(k0));
@@ -2258,6 +2276,7 @@ cv.addEventListener('pointerdown', e => {
       else ACT.buy(id); }
     return;
   }
+  if (pcMode && e.pointerType === 'mouse') return;   // mouse handled by the PC controls
   if (mode === 'play' && !modalKind && e.clientX > W * 0.62 && camDrag.id === null) { camDrag.id = e.pointerId; camDrag.x = e.clientX; camDrag.y = e.clientY; e.preventDefault(); return; }
   if (mode !== 'play' || modalKind || joy.id !== null || e.clientX > W * 0.62) return;
   joy.id = e.pointerId; joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY; joy.vx = joy.vy = 0;
@@ -2281,16 +2300,63 @@ window.addEventListener('keydown', e => {
   if (e.repeat || mode !== 'play') return;
   if (modalKind) { if (e.code === 'Escape' && modalKind !== 'result') closeModal(); return; }
   if (e.code === 'KeyE' || e.code === 'Space') { e.preventDefault(); onUse(); }
-  if (e.code === 'KeyL' && !isGuard()) { P.lantern = !P.lantern; SFX.lantern(P.lantern); }
-  if (e.code === 'ShiftLeft' || e.code === 'KeyF') sprint();
+  if ((e.code === 'KeyF' || e.code === 'KeyL') && !isGuard()) { P.lantern = !P.lantern; SFX.lantern(P.lantern); hudT = 0; }
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') sprint();
+  if (e.code === 'Tab') { e.preventDefault(); openBag(); }
   if (e.code === 'KeyG' && isGuard()) playerGrab();
   if (e.code === 'KeyX' && !isGuard()) useSmoke();
   if (e.code === 'KeyC' && !isGuard()) useDecoy();
-  if (e.code === 'KeyB' || e.code === 'KeyI') openBag();
+  if ((e.code === 'KeyB' || e.code === 'KeyI') && !isGuard()) openBag();
   if (e.code === 'KeyT' || e.code === 'KeyQ') { if (isGuard()) setTrap(); else throwItem(); }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+// ---------- PC: mouse look ----------
+// on a computer the mouse steers the camera (pointer lock when the page allows it,
+// otherwise hold the right button to look); left click = Use, right click = Throw/Trap
+var pcMode = matchMedia('(hover:hover) and (pointer:fine)').matches, lockOk = true, rmbLook = false, MOUSE_SENS = 0.0024;
+function ptrLocked() { return document.pointerLockElement === cv; }
+function mouseLook() { return pcMode && (ptrLocked() || rmbLook); }
+function lockMouse() { if (!pcMode || !lockOk || ptrLocked() || !cv.requestPointerLock) return; try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => { lockOk = false; }); } catch (e) { lockOk = false; } }
+function unlockMouse() { if (ptrLocked()) try { document.exitPointerLock(); } catch (e) {} }
+document.addEventListener('pointerlockerror', () => { lockOk = false; hudT = 0; });
+document.addEventListener('pointerlockchange', () => { hudT = 0; });
+function setPc(v) { if (pcMode === v) return; pcMode = v; document.body.classList.toggle('pc', v); if (!v) unlockMouse(); hudT = 0; }
+document.body.classList.toggle('pc', pcMode);
+window.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') setPc(false); else if (e.pointerType === 'mouse') setPc(true); }, true);
+window.addEventListener('keydown', e => { if (/^Key[WASD]$/.test(e.code)) setPc(true); }, true);
+cv.addEventListener('mousedown', e => {
+  if (!pcMode || mode !== 'play' || modalKind) return;
+  e.preventDefault();
+  if (lockOk && !ptrLocked()) { lockMouse(); return; }   // the first click just grabs the mouse
+  if (e.button === 0) onUse();
+  else if (e.button === 2) { if (lockOk) { if (isGuard()) setTrap(); else if (stunT <= 0) throwItem(); } else rmbLook = true; }
+});
+window.addEventListener('mouseup', e => { if (e.button === 2) rmbLook = false; });
+cv.addEventListener('contextmenu', e => { if (pcMode) e.preventDefault(); });
+window.addEventListener('mousemove', e => {
+  if (!mouseLook() || mode !== 'play' || modalKind) return;
+  const dx = Math.max(-200, Math.min(200, e.movementX || 0)), dy = Math.max(-200, Math.min(200, e.movementY || 0));
+  camYaw += dx * MOUSE_SENS; camDragAt = performance.now();
+  if (firstPerson()) camPitch = clamp(camPitch - dy * MOUSE_SENS, -0.55, 0.3);
+});
+cv.addEventListener('wheel', e => { if (mode === 'play' && thirdPerson()) { tpZoom = clamp(tpZoom * (e.deltaY > 0 ? 1.08 : 1 / 1.08), 0.6, 1.6); e.preventDefault(); } }, { passive: false });
+function pcWords(t) {
+  return t.replace('Tap Search when the rings meet', 'Click or press E when the rings meet')
+    .replace('Tap when the rings meet', 'Click or press E when the rings meet')
+    .replace('tap the Bag box to drop something', 'press B to drop something')
+    .replace('Tap Trap to set a bell', 'Press Q to set a bell');
+}
+function updatePcHud() {
+  const play = mode === 'play' && !modalKind;
+  $('xhair').hidden = !(pcMode && play && firstPerson() && ptrLocked());
+  const lh = $('lockHint'), need = pcMode && play && lockOk && !ptrLocked();
+  lh.hidden = !need;
+  if (need) { const h = isGuard() ? 'Click to look around with the mouse' : 'Click to steer the camera with the mouse';
+    const hh = h + '<small>WASD move \u00b7 E or click use \u00b7 Q or right-click ' + (isGuard() ? 'trap' : 'throw') + ' \u00b7 Shift sprint \u00b7 Esc frees the mouse</small>';
+    if (lh.innerHTML !== hh) lh.innerHTML = hh; }
+  if (pcMode && !lockOk && play && gameT < 10) { lh.hidden = false; const t = 'Hold the right mouse button to look around<small>WASD move \u00b7 E or click use \u00b7 Q ' + (isGuard() ? 'trap' : 'throw') + ' \u00b7 Shift sprint</small>'; if (lh.innerHTML !== t) lh.innerHTML = t; }
+}
 
 // =====================================================================
 // 3D: Moonlit Miniature voxel renderer (6 blocks per meter)
@@ -3231,14 +3297,14 @@ function initGfx() {
       tpLook.set(px + Math.cos(yaw) * cp, camera.position.y + Math.sin(pitch), pz + Math.sin(yaw) * cp);
       camera.lookAt(tpLook);
       { // keep the flashlight the same size and spot on screen whatever the shape of the screen
-        const sc = 0.3 * clamp(camera.aspect / 1.1, 0.5, 1), depth = 0.14 + 0.85 * sc, th = Math.tan(THREE.MathUtils.degToRad(FP_FOV / 2));
+        const sc = 0.3 * clamp(camera.aspect / 1.1, 0.5, 1) * (camera.aspect > 1.3 ? 0.72 : 1), depth = 0.14 + 0.85 * sc, th = Math.tan(THREE.MathUtils.degToRad(FP_FOV / 2));
         const hw = depth * th * camera.aspect, hh = depth * th; viewArm.scale.setScalar(sc);
         viewArm.position.set((camera.aspect < 1 ? 0.62 : 0.4) * hw + 0.14 * sc + Math.sin(bobA) * 0.02 * hw * fpAmt, -0.5 * hh + Math.abs(Math.cos(bobA)) * 0.03 * hh * fpAmt, -0.14); }
       camT.set(px, 0, pz); tpSnap = true;
     } else if (playing && thirdPerson()) {
       // over-the-shoulder: behind the robber, a little above head height
       const c0 = me(), px = m(c0.x), pz = m(c0.y), fx = Math.cos(camYaw), fz = Math.sin(camYaw);
-      const tall = camera.aspect < 1 ? 1.35 : 1, back = (digging ? 4.8 : 5.6) * tall, up = (digging ? 3.6 : 3.0) * tall;
+      const tall = (camera.aspect < 1 ? 1.35 : 1) * tpZoom, back = (digging ? 4.8 : 5.6) * tall, up = (digging ? 3.6 : 3.0) * tall;
       const cx = clamp(px - fx * back, -4, 39), cz = clamp(pz - fz * back, -4, 40);
       const k = tpSnap ? 1 : Math.min(1, dt * 7); tpSnap = false;
       tpPos.x += (cx - tpPos.x) * k; tpPos.y += (up - tpPos.y) * k; tpPos.z += (cz - tpPos.z) * k;
@@ -3531,7 +3597,8 @@ function initGfx() {
       ctx.globalAlpha = 1;
     }
     if (!modalKind && !digging) {
-      if (joy.id !== null) {
+      if (pcMode) {}
+      else if (joy.id !== null) {
         ctx.fillStyle = 'rgba(235,228,208,0.08)'; ctx.strokeStyle = 'rgba(235,228,208,0.35)'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(joy.ox, joy.oy, 60, 0, 7); ctx.fill(); ctx.stroke();
         ctx.fillStyle = 'rgba(217,179,92,0.85)'; ctx.beginPath(); ctx.arc(joy.x, joy.y, 26, 0, 7); ctx.fill();
@@ -3561,7 +3628,7 @@ window.addEventListener('resize', resize);
 // skill checks there, so controls feel instant; results go to the host.
 // =====================================================================
 // bump this every time the game is published, so players can tell they're on the same build
-const GS_VERSION = '2.1';
+const GS_VERSION = '2.2';
 const SUPA = { url: 'https://ljrnzpqepssnkidlcgha.supabase.co', key: 'sb_publishable_DWik0p9owlUHmoh2v1U9lA_pDlntvoc' };
 const SEATS = ['robber', 'g0', 'g1', 'g2'];
 const SEAT_NAME = { robber: 'Robber', g0: 'Guard 1', g1: 'Guard 2', g2: 'Guard 3' };
